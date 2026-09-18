@@ -56,7 +56,7 @@ import pandas as pd
 
 from geds import GeDSRegressor
 
-rng = np.random.default_rng(123)
+rng = np.random.RandomState(123)
 n = 500
 
 
@@ -102,9 +102,9 @@ fig.tight_layout()
 plt.show()
 ```
 
-With GeDS 0.3.6 and R 4.6.1, this seeded example fits six internal knots.
-The dashed vertical lines show how GeDS concentrates knots around the sharp
-variation in the response near zero.
+With GeDS 0.3.6 and R 4.6.1, this seeded example fits 16 internal knots.
+The dashed vertical lines show how GeDS places more knots around the sharp
+variation near zero while retaining knots across the wider domain.
 
 `GeDSRegressor` delegates to `GeDS::NGeDS()`. For exponential-family models,
 use `GeDSGeneralizedRegressor`, which delegates to `GeDS::GGeDS()`.
