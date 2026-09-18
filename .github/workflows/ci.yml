@@ -52,5 +52,12 @@ jobs:
       - name: Install the built wheel
         run: python -m pip install --find-links dist geds-python
 
+      - name: Smoke-test embedded R
+        run: >-
+          python -u -c "from geds._backend import _configure_r_process;
+          print('R home:', _configure_r_process(), flush=True);
+          import rpy2.robjects;
+          print('Embedded R initialized', flush=True)"
+
       - name: Run Python/R integration tests
         run: python -m pytest -q
