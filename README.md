@@ -45,19 +45,48 @@ print(geds.diagnostics())
 
 ## Example
 
+Install the optional plotting dependency with
+`python -m pip install -e ".[plot]"`, then fit and visualize a nonlinear
+regression:
+
 ```python
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
+
 from geds import GeDSRegressor
 
-X = pd.DataFrame({"x": [-1.0, -0.5, 0.0, 0.5, 1.0]})
-y = [0.0, -1.0, 0.0, 1.0, 0.0]
+rng = np.random.default_rng(123)
+x = np.linspace(-3.0, 3.0, 80)
+X = pd.DataFrame({"x": x})
+y = np.sin(x) + rng.normal(scale=0.12, size=x.size)
 
 model = GeDSRegressor(order=3, phi=0.9).fit(X, y)
-predictions = model.predict(X)
+grid = pd.DataFrame({"x": np.linspace(x.min(), x.max(), 400)})
+fitted = model.predict(grid)
+knots = np.asarray(model.knots_, dtype=float)
 
-print(model.knots_)
-print(model.coef_)
+print("Internal knots:", knots)
+
+fig, ax = plt.subplots()
+ax.scatter(x, y, s=24, alpha=0.65, label="Data")
+ax.plot(grid["x"], fitted, linewidth=2, label="GeDS fit")
+for index, knot in enumerate(knots):
+    ax.axvline(
+        knot,
+        color="tab:red",
+        linestyle="--",
+        alpha=0.55,
+        label="Internal knots" if index == 0 else None,
+    )
+ax.set(xlabel="x", ylabel="y", title="GeDS spline regression")
+ax.legend()
+fig.tight_layout()
+plt.show()
 ```
+
+With GeDS 0.3.6 and R 4.6.1, this seeded example fits three internal knots;
+the dashed vertical lines show their positions.
 
 `GeDSRegressor` delegates to `GeDS::NGeDS()`. For exponential-family models,
 use `GeDSGeneralizedRegressor`, which delegates to `GeDS::GGeDS()`.

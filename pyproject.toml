@@ -36,6 +36,7 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8"]
 dev = ["build>=1.2", "pytest>=8"]
+plot = ["matplotlib>=3.8"]
 
 [project.urls]
 Repository = "https://github.com/emilioluissaenzguillen/GeDS"
