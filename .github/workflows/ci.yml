@@ -38,6 +38,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Configure embedded R shared libraries
+        if: runner.os == 'Linux'
+        shell: bash
+        run: echo "LD_LIBRARY_PATH=$(R RHOME)/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
       - name: Install build and test dependencies
         run: python -m pip install --upgrade pip build pytest
 
