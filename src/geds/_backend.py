@@ -50,8 +50,17 @@ def _discover_r_home() -> Path:
     rscript = shutil.which("Rscript")
     if rscript:
         executable = Path(rscript).resolve()
-        if executable.parent.name.lower() == "bin":
-            return executable.parent.parent
+        try:
+            reported_home = subprocess.run(
+                [str(executable), "--vanilla", "-e", "cat(R.home())"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        except (OSError, subprocess.CalledProcessError):
+            reported_home = ""
+        if reported_home and (Path(reported_home) / "bin").is_dir():
+            return Path(reported_home)
 
     raise BackendUnavailableError(
         "R was not found. Install R and either put Rscript on PATH or set R_HOME."
