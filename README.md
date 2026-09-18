@@ -57,20 +57,37 @@ import pandas as pd
 from geds import GeDSRegressor
 
 rng = np.random.default_rng(123)
-x = np.linspace(-3.0, 3.0, 80)
-X = pd.DataFrame({"x": x})
-y = np.sin(x) + rng.normal(scale=0.12, size=x.size)
+n = 500
 
-model = GeDSRegressor(order=3, phi=0.9).fit(X, y)
-grid = pd.DataFrame({"x": np.linspace(x.min(), x.max(), 400)})
+
+def f_1(x):
+    return (10 * x / (1 + 100 * x**2)) * 4 + 4
+
+
+x = np.sort(rng.uniform(-2.0, 2.0, size=n))
+means = f_1(x)
+y = rng.normal(means, scale=0.1)
+X = pd.DataFrame({"x": x})
+
+model = GeDSRegressor(order=3).fit(X, y)
+grid_x = np.linspace(x.min(), x.max(), 500)
+grid = pd.DataFrame({"x": grid_x})
 fitted = model.predict(grid)
 knots = np.asarray(model.knots_, dtype=float)
 
 print("Internal knots:", knots)
 
 fig, ax = plt.subplots()
-ax.scatter(x, y, s=24, alpha=0.65, label="Data")
-ax.plot(grid["x"], fitted, linewidth=2, label="GeDS fit")
+ax.scatter(x, y, s=12, alpha=0.35, label="Data")
+ax.plot(
+    grid_x,
+    f_1(grid_x),
+    color="0.25",
+    linestyle=":",
+    linewidth=2,
+    label="True mean",
+)
+ax.plot(grid_x, fitted, linewidth=2, label="GeDS fit")
 for index, knot in enumerate(knots):
     ax.axvline(
         knot,
@@ -85,8 +102,9 @@ fig.tight_layout()
 plt.show()
 ```
 
-With GeDS 0.3.6 and R 4.6.1, this seeded example fits three internal knots;
-the dashed vertical lines show their positions.
+With GeDS 0.3.6 and R 4.6.1, this seeded example fits six internal knots.
+The dashed vertical lines show how GeDS concentrates knots around the sharp
+variation in the response near zero.
 
 `GeDSRegressor` delegates to `GeDS::NGeDS()`. For exponential-family models,
 use `GeDSGeneralizedRegressor`, which delegates to `GeDS::GGeDS()`.
