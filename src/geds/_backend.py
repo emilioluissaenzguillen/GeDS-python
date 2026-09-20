@@ -88,6 +88,18 @@ def _configure_r_process() -> Path:
             raise BackendUnavailableError(
                 f"Windows could not register R's DLL directory: {r_bin}"
             )
+        # Explicitly retain R's core DLLs as well. R 4.6 can otherwise start
+        # successfully while later failing to load recommended packages such
+        # as stats because their Rblas/Rlapack dependencies are not found.
+        for dll_name in ("R.dll", "Rblas.dll", "Rlapack.dll", "Riconv.dll"):
+            dll_path = r_bin / dll_name
+            if dll_path.is_file():
+                try:
+                    _DLL_HANDLES.append(ctypes.WinDLL(str(dll_path)))
+                except OSError as exc:
+                    raise BackendUnavailableError(
+                        f"Windows could not load R's core library: {dll_path}"
+                    ) from exc
 
     return r_home
 

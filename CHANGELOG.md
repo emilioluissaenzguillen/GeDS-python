@@ -6,6 +6,11 @@ The project follows [Semantic Versioning](https://semver.org/). Versions use
 the Python packaging form of pre-release identifiers, such as `0.1.0a1` for
 the first alpha release.
 
+## 0.1.0a2 - 2026-09-20
+
+- Preload R's core numerical DLLs on Windows so embedded R 4.6 can load
+  recommended packages without requiring Rtools on the user's `PATH`.
+
 ## 0.1.0a1 - 2026-09-20
 
 Initial alpha release.
