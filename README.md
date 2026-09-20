@@ -141,3 +141,8 @@ python -m build
 
 The tests start an embedded R session and therefore require a working GeDS
 installation; they do not substitute or reimplement any GeDS calculations.
+
+## Contact
+
+For questions about the Python interface, contact Emilio L. Sáenz Guillén at
+[emilioluissaenzguillen@gmail.com](mailto:emilioluissaenzguillen@gmail.com).
