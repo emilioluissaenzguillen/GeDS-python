@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle
+from importlib.metadata import version
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,10 @@ from sklearn.base import clone, is_regressor
 
 import geds
 from geds import GeDSGeneralizedRegressor, GeDSRegressor
+
+
+def test_distribution_and_module_versions_match():
+    assert geds.__version__ == version("geds-python")
 
 
 def _r_reference_frame(expression: str) -> pd.DataFrame:

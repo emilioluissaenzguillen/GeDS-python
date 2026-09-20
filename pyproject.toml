@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geds-python"
-version = "0.1.0.dev0"
+version = "0.1.0a1"
 description = "Python estimators backed by the GeDS R package"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,14 @@ license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 keywords = ["splines", "regression", "statistics", "R", "scikit-learn"]
 authors = [
-  {name = "The GeDS authors"},
+  {name = "Dimitrina S. Dimitrova"},
+  {name = "Vladimir K. Kaishev"},
+  {name = "Andrea Lattuada"},
+  {name = "Emilio L. Sáenz Guillén"},
+  {name = "Richard J. Verrall"},
+]
+maintainers = [
+  {name = "Emilio L. Sáenz Guillén", email = "emilioluissaenzguillen@gmail.com"},
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -39,10 +46,26 @@ dev = ["build>=1.2", "pytest>=8"]
 plot = ["matplotlib>=3.8"]
 
 [project.urls]
-Repository = "https://github.com/emilioluissaenzguillen/GeDS"
+Homepage = "https://github.com/emilioluissaenzguillen/GeDS-python"
+Repository = "https://github.com/emilioluissaenzguillen/GeDS-python"
+Issues = "https://github.com/emilioluissaenzguillen/GeDS-python/issues"
+Changelog = "https://github.com/emilioluissaenzguillen/GeDS-python/blob/main/CHANGELOG.md"
+"R package" = "https://github.com/emilioluissaenzguillen/GeDS"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/geds"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/CHANGELOG.md",
+  "/CITATION.cff",
+  "/LICENSE",
+  "/README.md",
+  "/RELEASING.md",
+  "/pyproject.toml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use GeDS for Python, please cite this software and the GeDS methodology references."
+title: "GeDS for Python"
+type: software
+version: 0.1.0a1
+date-released: 2026-09-20
+license: GPL-3.0-only
+repository-code: "https://github.com/emilioluissaenzguillen/GeDS-python"
+authors:
+  - family-names: Dimitrova
+    given-names: "Dimitrina S."
+  - family-names: Kaishev
+    given-names: "Vladimir K."
+  - family-names: Lattuada
+    given-names: Andrea
+  - family-names: "Sáenz Guillén"
+    given-names: "Emilio L."
+  - family-names: Verrall
+    given-names: "Richard J."

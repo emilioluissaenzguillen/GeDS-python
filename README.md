@@ -1,6 +1,6 @@
 # GeDS for Python
 
-This directory contains an early Python interface to the
+This package provides a Python interface to the
 [GeDS R package](https://github.com/emilioluissaenzguillen/GeDS). The R package
 is the sole implementation of the statistical methods. Python supplies a
 scikit-learn-style API, pandas/NumPy conversion, environment diagnostics, and
@@ -12,11 +12,11 @@ model serialization.
 - GeDS 0.3.6 or newer
 - Python 3.10 or newer
 
-Install the prototype in editable mode:
+Install the Python package, including the optional plotting dependency used in
+the example:
 
 ```console
-cd GeDS-python
-python -m pip install -e ".[test]"
+python -m pip install "geds-python[plot]"
 ```
 
 Install the R package separately, using R 4.6.1 or another supported R
@@ -46,7 +46,7 @@ print(geds.diagnostics())
 ## Example
 
 Install the optional plotting dependency with
-`python -m pip install -e ".[plot]"`, then fit and visualize a nonlinear
+`python -m pip install "geds-python[plot]"`, then fit and visualize a nonlinear
 regression:
 
 ```python
@@ -128,9 +128,12 @@ pickle-based format, only load files from trusted sources.
 
 ## Development
 
-Install the development dependencies and run the integration tests with:
+Clone the repository, then install the development dependencies and run the
+integration tests with:
 
 ```console
+git clone https://github.com/emilioluissaenzguillen/GeDS-python.git
+cd GeDS-python
 python -m pip install -e ".[dev]"
 python -m pytest
 python -m build
