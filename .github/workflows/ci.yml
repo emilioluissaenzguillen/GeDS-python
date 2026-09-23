@@ -50,7 +50,7 @@ jobs:
         run: python -m build
 
       - name: Install the built wheel
-        run: python -m pip install --find-links dist geds-python
+        run: python -m pip install --find-links dist "geds-python[plot]"
 
       - name: Smoke-test embedded R
         run: >-
