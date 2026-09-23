@@ -70,6 +70,9 @@ def test_ngeds_reference_values_and_pickle(tmp_path):
         frame[["X"]], frame["Y"].to_numpy().ravel()
     )
     prediction = estimator.predict(frame[["X"]].iloc[:5])
+    assert prediction.flags.owndata
+    assert estimator.coef_.flags.owndata
+    assert estimator.knots_.flags.owndata
     np.testing.assert_allclose(
         prediction,
         [3.769455, 3.780928, 3.785291, 3.785762, 3.785793],
@@ -78,6 +81,23 @@ def test_ngeds_reference_values_and_pickle(tmp_path):
     )
     assert len(estimator.knots_) == 9
     assert estimator.deviance_ == pytest.approx(0.570885, abs=1e-6)
+    assert estimator.get_deviance() == pytest.approx(estimator.deviance_)
+    assert np.isfinite(estimator.get_log_likelihood())
+    intervals = estimator.get_confidence_intervals()
+    assert intervals.columns.tolist() == ["lower", "upper"]
+    assert intervals.shape == (len(np.asarray(estimator.coef_)), 2)
+    assert np.isfinite(intervals.to_numpy()).all()
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        direct_intervals = backend.stats.confint(
+            estimator._r_model_, n=3, level=0.90
+        )
+        direct_names = list(backend.ro.r("rownames")(direct_intervals))
+    intervals_90 = estimator.get_confidence_intervals(level=0.90)
+    np.testing.assert_allclose(intervals_90.to_numpy(), np.asarray(direct_intervals))
+    assert intervals_90.index.tolist() == direct_names
+    with pytest.raises(ValueError, match="level must be"):
+        estimator.get_confidence_intervals(level=1.0)
     restored = pickle.loads(pickle.dumps(estimator))
     np.testing.assert_array_equal(restored.predict(frame[["X"]].iloc[:5]), prediction)
     model_path = tmp_path / "model.pkl"
@@ -116,6 +136,35 @@ def test_ggeds_poisson_reference_values():
         atol=1e-6,
         rtol=0,
     )
+    assert np.isfinite(estimator.get_log_likelihood())
+    assert np.isfinite(estimator.get_confidence_intervals().to_numpy()).all()
+
+    backend = geds._backend.get_backend()
+    r_training = pd.DataFrame({"response": frame["Y"], "x0": frame["X"]})
+    r_model = backend.fit(
+        "GGeDS",
+        backend.formula("response ~ f(x0)"),
+        backend.dataframe_to_r(r_training),
+        family=backend.family("poisson", None),
+        beta=0.2,
+        phi=0.95,
+        q=2,
+        show_iters=False,
+        stoptype="SR",
+        higher_order=True,
+    )
+    r_newdata = backend.dataframe_to_r(r_training[["x0"]].iloc[:5])
+    with backend.locked():
+        r_response = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=3, type="response")
+        )
+        r_link = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=3, type="link")
+        )
+        r_log_likelihood = float(backend.stats.logLik(r_model, n=3)[0])
+    np.testing.assert_allclose(estimator.predict(frame[["X"]].iloc[:5]), r_response)
+    np.testing.assert_allclose(estimator.predict_link(frame[["X"]].iloc[:5]), r_link)
+    assert estimator.get_log_likelihood() == pytest.approx(r_log_likelihood)
 
 
 def test_numeric_parametric_component_and_sklearn_clone():
@@ -132,11 +181,88 @@ def test_numeric_parametric_component_and_sklearn_clone():
     cloned = clone(estimator)
     assert cloned.get_params() == estimator.get_params()
     assert is_regressor(estimator)
-    prediction = estimator.fit(
-        X, y, sample_weight=np.linspace(0.5, 1.5, len(X))
-    ).predict(X)
+    backend = geds._backend.get_backend()
+    weights = np.linspace(0.5, 1.5, len(X))
+    with backend.locked():
+        backend.ro.r("set.seed(321)")
+    prediction = estimator.fit(X, y, sample_weight=weights).predict(X)
+    coefficients_before_r_fit = estimator.coef_.copy()
     assert prediction.shape == (60,)
     assert np.isfinite(prediction).all()
+    np.testing.assert_allclose(estimator.predict(X[["z", "x"]]), prediction)
+
+    # Fit the same weighted model through the R entry point, independently of
+    # the Python estimator's fit/predict methods.
+    r_training = pd.DataFrame(
+        {"response": y.to_numpy(), "x0": X["x"], "x1": X["z"]}
+    )
+    with backend.locked():
+        backend.ro.r("set.seed(321)")
+    r_model = backend.fit(
+        "NGeDS",
+        backend.formula("response ~ f(x0) + x1"),
+        backend.dataframe_to_r(r_training),
+        beta=0.5,
+        phi=0.9,
+        q=2,
+        show_iters=False,
+        stoptype="RD",
+        higher_order=True,
+        weights=backend.vector(weights),
+    )
+    r_newdata = backend.dataframe_to_r(r_training[["x0", "x1"]])
+    with backend.locked():
+        r_prediction = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=3, type="response")
+        )
+        r_coefficients = np.asarray(backend.stats.coef(r_model, n=3))
+    np.testing.assert_allclose(prediction, r_prediction, rtol=1e-10, atol=1e-10)
+    np.testing.assert_array_equal(estimator.coef_, coefficients_before_r_fit)
+    np.testing.assert_allclose(estimator.coef_, r_coefficients, rtol=1e-10)
+
+
+def test_weighted_poisson_matches_independent_r_fit():
+    x = np.linspace(-1.5, 1.5, 80)
+    y = np.random.default_rng(84).poisson(np.exp(0.4 + 0.7 * np.sin(2 * x)))
+    weights = np.linspace(0.5, 2.0, len(x))
+    X = pd.DataFrame({"x": x})
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        backend.ro.r("set.seed(678)")
+    estimator = GeDSGeneralizedRegressor(
+        family="poisson", order=2, higher_order=False,
+        beta=0.2, phi=0.9, max_internal_knots=4,
+    ).fit(X, y, sample_weight=weights)
+
+    r_training = pd.DataFrame({"response": y, "x0": x})
+    with backend.locked():
+        backend.ro.r("set.seed(678)")
+    r_model = backend.fit(
+        "GGeDS",
+        backend.formula("response ~ f(x0)"),
+        backend.dataframe_to_r(r_training),
+        family=backend.family("poisson", None),
+        beta=0.2,
+        phi=0.9,
+        q=2,
+        show_iters=False,
+        stoptype="SR",
+        higher_order=False,
+        max_intknots=4,
+        weights=backend.vector(weights),
+    )
+    r_newdata = backend.dataframe_to_r(r_training[["x0"]])
+    with backend.locked():
+        r_response = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=2, type="response")
+        )
+        r_link = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=2, type="link")
+        )
+        r_deviance = float(backend.stats.deviance(r_model, n=2)[0])
+    np.testing.assert_allclose(estimator.predict(X), r_response, rtol=1e-10)
+    np.testing.assert_allclose(estimator.predict_link(X), r_link, rtol=1e-10)
+    assert estimator.get_deviance() == pytest.approx(r_deviance)
 
 
 def test_bivariate_numpy_input():
@@ -144,6 +270,9 @@ def test_bivariate_numpy_input():
     x1, x2 = np.meshgrid(axis, axis)
     X = np.column_stack((x1.ravel(), x2.ravel()))
     y = np.sin(2 * X[:, 0]) + np.cos(2 * X[:, 1])
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        backend.ro.r("set.seed(321)")
     estimator = GeDSRegressor(
         order=2,
         higher_order=False,
@@ -154,6 +283,41 @@ def test_bivariate_numpy_input():
     assert prediction.shape == (6,)
     assert np.isfinite(prediction).all()
     assert isinstance(estimator.knots_, dict)
+    assert np.isfinite(estimator.get_log_likelihood(order=2))
+
+    r_training = pd.DataFrame(
+        {"response": y, "x0": X[:, 0], "x1": X[:, 1]}
+    )
+    with backend.locked():
+        backend.ro.r("set.seed(321)")
+    r_model = backend.fit(
+        "NGeDS",
+        backend.formula("response ~ f(x0, x1)"),
+        backend.dataframe_to_r(r_training),
+        beta=0.5,
+        phi=0.9,
+        q=2,
+        show_iters=False,
+        stoptype="RD",
+        higher_order=False,
+        max_intknots=3,
+    )
+    r_newdata = backend.dataframe_to_r(r_training[["x0", "x1"]].iloc[:6])
+    with backend.locked():
+        r_prediction = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=2, type="response")
+        )
+        r_log_likelihood = float(backend.stats.logLik(r_model, n=2)[0])
+        r_intervals = backend.stats.confint(r_model, n=2, level=0.90)
+        r_interval_names = list(backend.ro.r("rownames")(r_intervals))
+    np.testing.assert_allclose(prediction, r_prediction, rtol=1e-10, atol=1e-10)
+    assert estimator.get_log_likelihood(order=2) == pytest.approx(r_log_likelihood)
+    intervals = estimator.get_confidence_intervals(order=2, level=0.90)
+    assert np.isfinite(intervals.to_numpy()).any()
+    np.testing.assert_allclose(
+        intervals.to_numpy(), np.asarray(r_intervals), equal_nan=True
+    )
+    assert intervals.index.tolist() == r_interval_names
 
 
 def test_categorical_parametric_feature():

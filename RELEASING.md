@@ -22,11 +22,18 @@ publication creates the project.
 
 ## Prepare a release
 
-1. Update the version in `pyproject.toml`, `src/geds/__init__.py`, and
+1. Confirm which GeDS R behavior this Python release requires. The current
+   wrapper requires GeDS 0.3.6, while CRAN still lists 0.3.5 as of September
+   2026, so installation instructions must point users to the R GitHub
+   repository until CRAN catches up. If a new Python feature needs a further
+   R fix, first publish that R change on GitHub, test against the exact R
+   commit or tag, and document how users install it. `GeDS >= 0.3.6` alone
+   cannot identify GitHub-only fixes in a build that still reports 0.3.6.
+2. Update the version in `pyproject.toml`, `src/geds/__init__.py`, and
    `CITATION.cff`.
-2. Add the release notes and date to `CHANGELOG.md`.
-3. Run the test suite and build checks locally.
-4. Merge the release commit into `main` and confirm that CI passes.
+3. Add the release notes and date to `CHANGELOG.md`.
+4. Run the test suite and build checks locally.
+5. Merge the release commit into `main` and confirm that CI passes.
 
 Published versions are immutable. Never reuse a version that has already been
 uploaded to either package index.
@@ -41,16 +48,20 @@ clean environment and install in two steps:
 
 ```console
 python -m pip install numpy pandas "rpy2>=3.6.7,<3.7" "scikit-learn>=1.4"
-python -m pip install --index-url https://test.pypi.org/simple/ --no-deps geds-python==0.1.0a1
+python -m pip install --index-url https://test.pypi.org/simple/ --no-deps geds-python==RELEASE_VERSION
 ```
 
-Install GeDS in R, then run `geds.diagnostics()` and a fit/predict smoke test.
+Replace `RELEASE_VERSION` with the new candidate version before running the
+second command; do not reuse a version already published to an index.
+
+Install the required GeDS source in R (currently GitHub),
+then run `geds.diagnostics()` and a fit/predict smoke test.
 
 ## PyPI
 
 After TestPyPI validation:
 
-1. Create an annotated tag matching the version, for example `v0.1.0a1`.
+1. Create an annotated tag matching the new version, prefixed with `v`.
 2. Push the tag.
 3. Create and publish a GitHub Release from that tag.
 4. Approve the protected `pypi` environment deployment.

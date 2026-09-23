@@ -255,6 +255,33 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         self._validate_requested_order(selected_order)
         return get_backend().knots(self._r_model_, selected_order)
 
+    def get_deviance(self, order: int | None = None) -> float:
+        """Return the R GeDS deviance for a selected spline order."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        return get_backend().deviance(self._r_model_, selected_order)
+
+    def get_log_likelihood(self, order: int | None = None) -> float:
+        """Return the R GeDS log likelihood for a selected spline order."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        return get_backend().log_likelihood(self._r_model_, selected_order)
+
+    def get_confidence_intervals(
+        self, order: int | None = None, *, level: float = 0.95
+    ) -> pd.DataFrame:
+        """Return R GeDS coefficient intervals with lower and upper columns."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        if not np.isfinite(level) or not 0 < level < 1:
+            raise ValueError("level must be a finite number strictly between 0 and 1.")
+        return get_backend().confidence_intervals(
+            self._r_model_, selected_order, level
+        )
+
     def _validate_requested_order(self, order: int) -> None:
         if order not in (2, 3, 4):
             raise ValueError("order must be 2, 3, or 4.")

@@ -20,11 +20,24 @@ python -m pip install "geds-python[plot]"
 ```
 
 Install the R package separately, using R 4.6.1 or another supported R
-installation:
+installation. GeDS 0.3.6 is available from its GitHub repository:
 
 ```r
-install.packages("GeDS")
+install.packages("remotes")
+remotes::install_github("emilioluissaenzguillen/GeDS", dependencies = NA,
+                        upgrade = "never")
 ```
+
+As of September 2026, [CRAN lists GeDS 0.3.5](https://cran.r-project.org/package=GeDS),
+which is below this wrapper's minimum requirement. `install.packages("GeDS")`
+alone will not satisfy the Python backend until CRAN provides 0.3.6 or newer.
+Check the installed R version with `packageVersion("GeDS")`.
+
+On Windows, building the GitHub source package requires Rtools compatible
+with the selected R installation. The current Python API does not expose R's
+offset or term-prediction changes. Its minimum GeDS version check confirms
+`0.3.6` or newer, but cannot by itself guarantee that a particular GitHub-only
+fix is present when multiple builds report the same version number.
 
 The wrapper discovers the newest R installation under `Program Files/R` on
 Windows or uses `Rscript` from `PATH` on other platforms. Set `R_HOME` to select
@@ -73,7 +86,7 @@ directory as `GEDS_R_LIBRARY`.
 
 If the check reports that R is missing, install R or set `R_HOME`. If it finds
 R but not GeDS, start that same R installation and run
-`install.packages("GeDS")`, then rerun the check.
+one of the GeDS installation commands above, then rerun the check.
 
 ## Example
 
@@ -130,6 +143,37 @@ variation near zero while retaining knots across the wider domain.
 `GeDSRegressor` delegates to `GeDS::NGeDS()`. For exponential-family models,
 use `GeDSGeneralizedRegressor`, which delegates to `GeDS::GGeDS()`.
 
+For fitted models, `get_deviance(order=...)`, `get_log_likelihood(order=...)`,
+and `get_confidence_intervals(order=..., level=...)` call the corresponding R
+methods. Confidence intervals are returned as a pandas DataFrame with `lower`
+and `upper` columns. As in R, these are coefficient intervals, not confidence
+bands for the fitted curve.
+
+For count data, the generalized estimator uses `GeDS::GGeDS()` and supports
+both response-scale and link-scale prediction:
+
+```python
+import numpy as np
+import pandas as pd
+from geds import GeDSGeneralizedRegressor, plot_fit
+
+rng = np.random.default_rng(123)
+x = np.sort(rng.uniform(-2, 2, 120))
+X = pd.DataFrame({"x": x})
+counts = rng.poisson(np.exp(1 + np.sin(x)))
+
+model = GeDSGeneralizedRegressor(
+    family="poisson", beta=0.2, phi=0.95, min_internal_knots=3
+).fit(X, counts)
+mean_counts = model.predict(X)
+log_mean_counts = model.predict_link(X)
+ax = plot_fit(model, X, counts)
+```
+
+`min_internal_knots` controls the minimum number of stage-A knots; it is used
+here to make a small sample's fitted spline visible. GeDS determines the
+final knot positions.
+
 Choose spline and parametric components explicitly for mixed data:
 
 ```python
@@ -142,6 +186,13 @@ model = GeDSRegressor(
 Spline features must be numeric. Parametric features may be numeric or
 categorical; their encoding is performed by the R package so fitting and
 prediction use R's native factor semantics.
+If `spline_features` is omitted, all columns are used in a single joint spline
+term. Select `spline_features=["x"]` and `linear_features=["group"]` to keep
+`group` parametric instead. Two spline features create a joint bivariate
+surface, not two separate additive smooths; R's support for more than two
+spline features is experimental. With named pandas columns, prediction may
+receive columns in a different order because the wrapper restores the fitted
+column order before calling R.
 
 Fitted estimators contain a serialized R model and can be saved with
 `model.save(path)` and restored with `GeDSRegressor.load(path)`. As with any

@@ -219,7 +219,7 @@ class RBackend:
             result = self.stats.predict(
                 model, newdata=data, n=order, type=prediction_type
             )
-        return np.asarray(result, dtype=float)
+        return np.array(result, dtype=float, copy=True)
 
     def coefficients(self, model: Any, order: int) -> Any:
         with self.locked():
@@ -234,6 +234,19 @@ class RBackend:
     def deviance(self, model: Any, order: int) -> float:
         with self.locked():
             return float(self.stats.deviance(model, n=order)[0])
+
+    def log_likelihood(self, model: Any, order: int) -> float:
+        with self.locked():
+            return float(self.stats.logLik(model, n=order)[0])
+
+    def confidence_intervals(
+        self, model: Any, order: int, level: float
+    ) -> pd.DataFrame:
+        with self.locked():
+            intervals = self.stats.confint(model, n=order, level=level)
+            names = [str(name) for name in self.ro.r("rownames")(intervals)]
+            values = np.array(intervals, dtype=float, copy=True)
+        return pd.DataFrame(values, index=names, columns=["lower", "upper"])
 
     def component(self, model: Any, name: str) -> Any:
         try:
@@ -253,11 +266,11 @@ class RBackend:
                 return dict(zip(names, converted))
             return converted
         if isinstance(value, vectors.StrVector):
-            result = np.asarray(value, dtype=str)
+            result = np.array(value, dtype=str, copy=True)
         elif isinstance(
             value, (vectors.FloatVector, vectors.IntVector, vectors.BoolVector)
         ):
-            result = np.asarray(value)
+            result = np.array(value, copy=True)
         else:
             return value
         return result.item() if result.ndim == 0 else result
