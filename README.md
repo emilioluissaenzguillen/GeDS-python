@@ -37,11 +37,43 @@ selected R installation and package library through `geds.diagnostics()`.
 
 Check the backend before fitting:
 
+```console
+python -m geds.check
+```
+
+For a machine-readable report, use `python -m geds.check --json`. The same
+information is available inside Python:
+
 ```python
 import geds
 
 print(geds.diagnostics())
 ```
+
+### Selecting R and its package library
+
+Usually no configuration is necessary. If several R installations are
+available, select one before starting Python:
+
+```powershell
+$env:R_HOME = "C:\Program Files\R\R-4.6.1"
+python -m geds.check
+```
+
+```bash
+export R_HOME="/Library/Frameworks/R.framework/Resources"  # macOS
+# export R_HOME="/usr/lib/R"                               # Linux
+python -m geds.check
+```
+
+If GeDS is installed in a personal or otherwise non-default R library, set
+`GEDS_R_LIBRARY` to the directory that contains the `GeDS` folder. You can
+find that directory from R with `find.package("GeDS")`; use its parent
+directory as `GEDS_R_LIBRARY`.
+
+If the check reports that R is missing, install R or set `R_HOME`. If it finds
+R but not GeDS, start that same R installation and run
+`install.packages("GeDS")`, then rerun the check.
 
 ## Example
 
@@ -54,7 +86,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from geds import GeDSRegressor
+from geds import GeDSRegressor, plot_fit
 
 rng = np.random.RandomState(123)
 n = 500
@@ -70,15 +102,13 @@ y = rng.normal(means, scale=0.1)
 X = pd.DataFrame({"x": x})
 
 model = GeDSRegressor(order=3).fit(X, y)
-grid_x = np.linspace(x.min(), x.max(), 500)
-grid = pd.DataFrame({"x": grid_x})
-fitted = model.predict(grid)
 knots = np.asarray(model.knots_, dtype=float)
 
 print("Internal knots:", knots)
 
 fig, ax = plt.subplots()
-ax.scatter(x, y, s=12, alpha=0.35, label="Data")
+plot_fit(model, X, y, ax=ax)
+grid_x = np.linspace(x.min(), x.max(), 500)
 ax.plot(
     grid_x,
     f_1(grid_x),
@@ -87,16 +117,7 @@ ax.plot(
     linewidth=2,
     label="True mean",
 )
-ax.plot(grid_x, fitted, linewidth=2, label="GeDS fit")
-for index, knot in enumerate(knots):
-    ax.axvline(
-        knot,
-        color="tab:red",
-        linestyle="--",
-        alpha=0.55,
-        label="Internal knots" if index == 0 else None,
-    )
-ax.set(xlabel="x", ylabel="y", title="GeDS spline regression")
+ax.set(ylabel="y")
 ax.legend()
 fig.tight_layout()
 plt.show()

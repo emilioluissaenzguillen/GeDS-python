@@ -9,7 +9,9 @@ import pytest
 from sklearn.base import clone, is_regressor
 
 import geds
-from geds import GeDSGeneralizedRegressor, GeDSRegressor
+import geds.check as check_module
+from geds import GeDSGeneralizedRegressor, GeDSRegressor, plot_fit
+from geds.check import main as check_main
 
 
 def test_distribution_and_module_versions_match():
@@ -29,6 +31,29 @@ def test_diagnostics():
     installed = tuple(int(part) for part in info["geds_version"].split(".")[:3])
     assert installed >= (0, 3, 6)
     assert info["minimum_geds_version"] == "0.3.6"
+
+
+def test_environment_check(capsys):
+    assert check_main([]) == 0
+    assert "GeDS environment check: OK" in capsys.readouterr().out
+
+
+def test_environment_check_json(capsys):
+    assert check_main(["--json"]) == 0
+    output = capsys.readouterr().out
+    assert '"status": "ok"' in output
+    assert '"geds_version"' in output
+
+
+def test_environment_check_failure(monkeypatch, capsys):
+    def unavailable():
+        raise geds.BackendUnavailableError("R was not found.")
+
+    monkeypatch.setattr(check_module, "diagnostics", unavailable)
+    assert check_main([]) == 1
+    error = capsys.readouterr().err
+    assert "GeDS environment check: FAILED" in error
+    assert "R_HOME" in error
 
 
 def test_ngeds_reference_values_and_pickle(tmp_path):
@@ -59,6 +84,10 @@ def test_ngeds_reference_values_and_pickle(tmp_path):
     estimator.save(model_path)
     loaded = GeDSRegressor.load(model_path)
     np.testing.assert_array_equal(loaded.predict(frame[["X"]].iloc[:5]), prediction)
+
+    axes = plot_fit(estimator, frame[["X"]], frame["Y"], grid_size=50)
+    assert axes.get_title() == "GeDS spline regression"
+    assert len(axes.lines) == len(np.asarray(estimator.knots_).ravel()) + 1
 
 
 def test_ggeds_poisson_reference_values():

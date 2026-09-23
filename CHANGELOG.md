@@ -6,6 +6,13 @@ The project follows [Semantic Versioning](https://semver.org/). Versions use
 the Python packaging form of pre-release identifiers, such as `0.1.0a1` for
 the first alpha release.
 
+## 0.1.0a3 - 2026-09-23
+
+- Add `python -m geds.check` for human-readable or JSON environment checks.
+- Add `geds.plot_fit()` for Python-native visualization of univariate fits and
+  internal knots.
+- Expand installation and R-library troubleshooting guidance.
+
 ## 0.1.0a2 - 2026-09-20
 
 - Preload R's core numerical DLLs on Windows so embedded R 4.6 can load

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geds-python"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "Python estimators backed by the GeDS R package"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
-dev = ["build>=1.2", "pytest>=8"]
+dev = ["build>=1.2", "matplotlib>=3.8", "pytest>=8"]
 plot = ["matplotlib>=3.8"]
 
 [project.urls]
