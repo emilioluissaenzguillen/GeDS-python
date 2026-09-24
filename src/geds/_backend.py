@@ -22,7 +22,7 @@ class BackendUnavailableError(RuntimeError):
 
 
 _DLL_HANDLES: list[Any] = []
-MIN_GEDS_VERSION = "0.3.6"
+MIN_GEDS_VERSION = "0.3.6.9000"
 
 
 def _version_key(path: Path) -> tuple[int, ...]:
@@ -214,12 +214,22 @@ class RBackend:
 
     def predict(
         self, model: Any, data: Any, order: int, prediction_type: str
-    ) -> np.ndarray:
+    ) -> np.ndarray | pd.DataFrame:
         with self.locked():
             result = self.stats.predict(
                 model, newdata=data, n=order, type=prediction_type
             )
-        return np.array(result, dtype=float, copy=True)
+            values = np.array(result, dtype=float, copy=True)
+            if prediction_type == "terms":
+                names = self.ro.r("colnames")(result)
+                if values.ndim != 2 or names is self.ro.NULL:
+                    raise BackendUnavailableError(
+                        "This GeDS R build does not return named term predictions. "
+                        "Install the GeDS GitHub prediction fixes."
+                    )
+                columns = [str(name) for name in names]
+                return pd.DataFrame(values, columns=columns)
+        return values
 
     def coefficients(self, model: Any, order: int) -> Any:
         with self.locked():

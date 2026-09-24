@@ -23,12 +23,10 @@ publication creates the project.
 ## Prepare a release
 
 1. Confirm which GeDS R behavior this Python release requires. The current
-   wrapper requires GeDS 0.3.6, while CRAN still lists 0.3.5 as of September
-   2026, so installation instructions must point users to the R GitHub
-   repository until CRAN catches up. If a new Python feature needs a further
-   R fix, first publish that R change on GitHub, test against the exact R
-   commit or tag, and document how users install it. `GeDS >= 0.3.6` alone
-   cannot identify GitHub-only fixes in a build that still reports 0.3.6.
+   wrapper requires GeDS 0.3.6.9000, the GitHub development version containing
+   the fit and prediction fixes. Install and test against the exact R commit
+   or tag and document how users install it. CRAN's 0.3.6 review follows a
+   separate schedule and does not contain these GitHub-only fixes.
 2. Update the version in `pyproject.toml`, `src/geds/__init__.py`, and
    `CITATION.cff`.
 3. Add the release notes and date to `CHANGELOG.md`.

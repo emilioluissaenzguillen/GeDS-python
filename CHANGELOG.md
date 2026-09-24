@@ -11,13 +11,16 @@ the first alpha release.
 - Begin an R-to-Python feature audit for the next coordinated release.
 - Add order-specific access to R's deviance, log likelihood, and coefficient
   confidence intervals.
+- Add univariate fit/prediction offsets and named `predict_terms()` output,
+  delegated to the locally fixed R package. These require the corresponding
+  R GitHub changes before publication.
 - Expand independent R/Python parity tests for weighted normal and Poisson
   fits, bivariate fits and confidence intervals; clarify joint-spline feature
   selection.
 - Copy arrays extracted from R into Python-owned memory so later R calls cannot
   change stored coefficients, knots, or predictions.
-- Clarify that GeDS 0.3.6 must currently be installed from GitHub because
-  CRAN still provides 0.3.5.
+- Require GeDS 0.3.6.9000 from GitHub to identify the R fit and prediction
+  fixes needed by the Python API.
 
 ## 0.1.0a3 - 2026-09-23
 
