@@ -10,7 +10,13 @@ from sklearn.base import clone, is_regressor
 
 import geds
 import geds.check as check_module
-from geds import GeDSGeneralizedRegressor, GeDSRegressor, plot_fit
+from geds import (
+    GeDSBoostRegressor,
+    GeDSGAMRegressor,
+    GeDSGeneralizedRegressor,
+    GeDSRegressor,
+    plot_fit,
+)
 from geds.check import main as check_main
 
 
@@ -454,3 +460,106 @@ def test_requested_order_is_validated():
         estimator.get_knots(order=3)
     with pytest.raises(ValueError, match="order must be"):
         estimator.get_coefficients(order=0)
+
+
+@pytest.mark.parametrize(
+    ("estimator_class", "r_function", "fit_kwargs"),
+    [
+        (GeDSGAMRegressor, "NGeDSgam", {"internal_knots": 4}),
+        (GeDSBoostRegressor, "NGeDSboost", {"int.knots_boost": 4}),
+    ],
+)
+def test_additive_estimators_match_independent_r_fit(
+    estimator_class, r_function, fit_kwargs
+):
+    x = np.linspace(-1, 1, 30)
+    X = pd.DataFrame({"x": x, "z": x * x})
+    y = np.sin(2 * x) + x * x
+    py_kwargs = {"internal_knots": 4} if r_function == "NGeDSgam" else {"int_knots_boost": 4}
+    estimator = estimator_class(
+        spline_terms=(("x",), ("z",)), max_iterations=3, **py_kwargs
+    ).fit(X, y)
+    assert is_regressor(estimator)
+    assert clone(estimator).get_params() == estimator.get_params()
+    assert estimator.base_learner_names_ == ["f(x)", "f(z)"]
+    newdata = X.iloc[:6]
+    assert np.isfinite(estimator.predict_component(newdata, "f(x)")).all()
+    with pytest.raises(NotImplementedError, match="type='terms'"):
+        estimator.predict_terms(newdata)
+
+    backend = geds._backend.get_backend()
+    r_frame = pd.DataFrame({"response": y, "x0": x, "x1": x * x})
+    r_kwargs = {"max_iterations": 3, **fit_kwargs}
+    if r_function == "NGeDSboost":
+        r_kwargs["family"] = backend.boost_family("gaussian")
+    else:
+        r_kwargs["family"] = backend.family("gaussian", None)
+    r_model = backend.fit(
+        r_function,
+        backend.formula("response ~ f(x0) + f(x1)"),
+        backend.dataframe_to_r(r_frame),
+        **r_kwargs,
+    )
+    r_newdata = backend.dataframe_to_r(r_frame[["x0", "x1"]].iloc[:6])
+    with backend.locked():
+        r_prediction = np.asarray(
+            backend.stats.predict(r_model, newdata=r_newdata, n=3, type="response")
+        )
+        r_deviance = float(backend.stats.deviance(r_model, n=3)[0])
+    np.testing.assert_allclose(estimator.predict(newdata), r_prediction, rtol=1e-10)
+    assert estimator.deviance_ == pytest.approx(r_deviance)
+
+
+def test_additive_term_validation():
+    X = pd.DataFrame({"x": np.linspace(-1, 1, 10), "z": np.linspace(1, 2, 10)})
+    with pytest.raises(ValueError, match="only one spline term"):
+        GeDSGAMRegressor(spline_terms=(("x",), ("x",))).fit(X, X["x"])
+
+
+@pytest.mark.parametrize("estimator_class", [GeDSGAMRegressor, GeDSBoostRegressor])
+def test_additive_poisson_fits(estimator_class):
+    x = np.linspace(-1, 1, 35)
+    X = pd.DataFrame({"x": x})
+    y = np.maximum(1, np.round(np.exp(0.5 + x))).astype(float)
+    knots = {"internal_knots": 4} if estimator_class is GeDSGAMRegressor else {"int_knots_boost": 4}
+    estimator = estimator_class(family="poisson", max_iterations=3, **knots).fit(X, y)
+    assert np.isfinite(estimator.predict(X)).all()
+    assert np.isfinite(estimator.predict_link(X)).all()
+
+
+def test_additive_binomial_response_conventions():
+    x = np.linspace(-1, 1, 40)
+    X = x[:, None]
+    rng = np.random.default_rng(123)
+    labels = rng.binomial(1, 1 / (1 + np.exp(-x))).astype(float)
+    gam = GeDSGAMRegressor(
+        family="binomial", max_iterations=3, internal_knots=4
+    ).fit(X, labels)
+    assert np.all((gam.predict(X) >= 0) & (gam.predict(X) <= 1))
+    boost = GeDSBoostRegressor(
+        family="binomial", max_iterations=3, int_knots_boost=3
+    ).fit(X, 2 * labels - 1)
+    assert np.all((boost.predict(X) >= 0) & (boost.predict(X) <= 1))
+    with pytest.raises(ValueError, match="0 and 1"):
+        GeDSGAMRegressor(family="binomial").fit(X, 2 * labels - 1)
+    with pytest.raises(ValueError, match="-1 and 1"):
+        GeDSBoostRegressor(family="binomial").fit(X, labels)
+
+
+@pytest.mark.parametrize("estimator_class", [GeDSGAMRegressor, GeDSBoostRegressor])
+def test_additive_categorical_linear_term(estimator_class):
+    x = np.linspace(-1, 1, 36)
+    X = pd.DataFrame({
+        "x": x,
+        "z": x * x,
+        "group": pd.Categorical(np.resize(["a", "b"], len(x))),
+    })
+    y = np.sin(2 * x) + 0.2 * (X["group"] == "b").astype(float)
+    knots = {"internal_knots": 4} if estimator_class is GeDSGAMRegressor else {"int_knots_boost": 4}
+    estimator = estimator_class(
+        spline_terms=(("x",), ("z",)), linear_features=("group",),
+        max_iterations=3, **knots,
+    ).fit(X, y)
+    assert estimator.formula_ == "response ~ f(x0) + f(x1) + x2"
+    assert estimator.predict(X).shape == (len(x),)
+    assert np.isfinite(estimator.predict_component(X, "group")).all()

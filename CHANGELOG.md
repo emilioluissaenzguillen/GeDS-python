@@ -6,6 +6,14 @@ The project follows [Semantic Versioning](https://semver.org/). Versions use
 the Python packaging form of pre-release identifiers, such as `0.1.0a1` for
 the first alpha release.
 
+## Unreleased
+
+- Add additive GAM and gradient-boosting estimators backed by the R package's
+  `NGeDSgam()` and `NGeDSboost()` functions, with independently checked R/Python
+  predictions and no duplicate statistical implementation.
+- Support named additive spline terms, joint spline terms, parametric features,
+  selected loss families, and individual base-learner predictions.
+
 ## 0.1.0a4 - release candidate (not published)
 
 - Begin an R-to-Python feature audit for the next coordinated release.

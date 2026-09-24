@@ -230,6 +230,45 @@ spline features is experimental. With named pandas columns, prediction may
 receive columns in a different order because the wrapper restores the fitted
 column order before calling R.
 
+### Additive GAM and boosting models
+
+Use `GeDSGAMRegressor` for R's `NGeDSgam()` and `GeDSBoostRegressor` for
+`NGeDSboost()`. Each entry in `spline_terms` is one additive smooth. Put two
+features in the same entry for a joint surface. If omitted, each non-linear
+feature gets its own smooth; `linear_features` selects parametric terms.
+
+```python
+import numpy as np
+import pandas as pd
+from geds import GeDSGAMRegressor, GeDSBoostRegressor
+
+x = np.linspace(-2, 2, 100)
+X = pd.DataFrame({"x": x, "z": x**2})
+y = np.sin(x) + 0.3 * x**2
+
+gam = GeDSGAMRegressor(
+    spline_terms=[("x",), ("z",)], max_iterations=10
+).fit(X, y)
+boost = GeDSBoostRegressor(
+    spline_terms=[("x",), ("z",)], max_iterations=20
+).fit(X, y)
+
+gam_predictions = gam.predict(X)
+boost_predictions = boost.predict(X)
+x_contribution = gam.predict_component(X, "f(x)")
+```
+
+Both estimators expose `predict_link()`, order-specific coefficients, knots,
+deviance, log likelihood, and coefficient confidence intervals through R.
+`predict_component()` delegates a named learner prediction to R. The R
+GAM/boost prediction method does not support `type="terms"`, so these
+estimators do not offer `predict_terms()`. The GAM wrapper supports the
+families accepted by `GeDSGeneralizedRegressor`; for binomial fits it accepts
+0/1 responses and creates the factor required by R. The boosting
+wrapper maps `gaussian`, `poisson`, `binomial`, and `gamma` to mboost families.
+For binomial boosting, R expects responses encoded as -1 and 1. Offset
+prediction is not offered for these additive estimators yet.
+
 Fitted estimators contain a serialized R model and can be saved with
 `model.save(path)` and restored with `GeDSRegressor.load(path)`. As with any
 pickle-based format, only load files from trusted sources.

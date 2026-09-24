@@ -441,3 +441,255 @@ class GeDSGeneralizedRegressor(_GeDSBase):
         )
         self._finish_fit(model)
         return self
+
+
+class _GeDSAdditiveBase(_GeDSBase):
+    """Shared Python data handling for R's additive GAM and boosting fits."""
+
+    def _validate_configuration(self) -> None:
+        if self.order not in (2, 3, 4):
+            raise ValueError("order must be 2, 3, or 4.")
+        if not self.higher_order and self.order != 2:
+            raise ValueError("order must be 2 when higher_order=False.")
+        if not 0 <= self.beta <= 1 or not 0 < self.phi < 1:
+            raise ValueError("beta must be in [0, 1] and phi in (0, 1).")
+        if not isinstance(self.q, (int, np.integer)) or self.q < 1:
+            raise ValueError("q must be a positive integer.")
+        for name in ("min_iterations", "max_iterations"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, (int, np.integer)) or value < 0):
+                raise ValueError(f"{name} must be a non-negative integer or None.")
+        if (self.min_iterations is not None and self.max_iterations is not None
+                and self.min_iterations > self.max_iterations):
+            raise ValueError("min_iterations must not exceed max_iterations.")
+        if self.max_iterations == 0:
+            raise ValueError("max_iterations must be positive when specified.")
+
+    def _prepare_additive_data(
+        self, X: Any, y: Any, sample_weight: Any
+    ) -> tuple[pd.DataFrame, str, Any | None]:
+        frame, named_input = self._frame(X)
+        response = np.asarray(y, dtype=float)
+        if response.ndim != 1 or len(response) != len(frame) or not np.isfinite(response).all():
+            raise ValueError("y must contain one finite numeric value per row of X.")
+        if frame.isna().to_numpy().any():
+            raise ValueError("X must not contain missing values.")
+
+        columns = list(frame.columns)
+        linear = self._resolve(self.linear_features, columns, default=[])
+        if self.spline_terms is None:
+            terms = [[index] for index in range(len(columns)) if index not in linear]
+        else:
+            terms = [self._resolve(group, columns, default=[]) for group in self.spline_terms]
+        if not terms or any(not group for group in terms):
+            raise ValueError("spline_terms must contain at least one non-empty feature group.")
+        spline = [index for group in terms for index in group]
+        if len(spline) != len(set(spline)):
+            raise ValueError("A feature may occur in only one spline term.")
+        if set(spline).intersection(linear):
+            raise ValueError("Spline and linear feature selections must not overlap.")
+        non_numeric = [columns[index] for index in spline if not is_numeric_dtype(frame.iloc[:, index])]
+        if non_numeric:
+            raise TypeError(f"Spline features must be numeric; got {non_numeric}.")
+
+        self.n_features_in_ = frame.shape[1]
+        self._input_columns_ = columns
+        self._named_input_ = named_input
+        if named_input and all(isinstance(column, str) for column in columns):
+            self.feature_names_in_ = np.asarray(columns, dtype=object)
+        self._internal_columns_ = [f"x{index}" for index in range(len(columns))]
+        self._spline_indices_ = spline
+        self._linear_indices_ = linear
+        self._has_offset_ = False
+        self.spline_terms_ = [
+            tuple(columns[index] for index in group) for group in terms
+        ]
+        self.spline_features_ = np.asarray([columns[index] for index in spline], dtype=object)
+        self.linear_features_ = np.asarray([columns[index] for index in linear], dtype=object)
+
+        internal = frame.copy()
+        internal.columns = self._internal_columns_
+        internal.insert(0, "response", response)
+        self._r_base_learner_names_ = [
+            "f(" + ", ".join(self._internal_columns_[index] for index in group) + ")"
+            for group in terms
+        ]
+        self.base_learner_names_ = [
+            "f(" + ", ".join(str(columns[index]) for index in group) + ")"
+            for group in terms
+        ]
+        self._base_learner_lookup_ = dict(zip(self.base_learner_names_, self._r_base_learner_names_))
+        self._base_learner_lookup_.update(
+            {str(columns[index]): self._internal_columns_[index] for index in linear}
+        )
+        formula_terms = [*self._r_base_learner_names_, *[self._internal_columns_[i] for i in linear]]
+        self.formula_ = "response ~ " + " + ".join(formula_terms)
+
+        weights = None
+        if sample_weight is not None:
+            weight_array = np.asarray(sample_weight, dtype=float)
+            if (weight_array.ndim != 1 or len(weight_array) != len(frame)
+                    or not np.isfinite(weight_array).all() or np.any(weight_array < 0)):
+                raise ValueError("sample_weight must contain one finite, non-negative value per row.")
+            weights = get_backend().vector(weight_array)
+        return internal, self.formula_, weights
+
+    def predict_terms(self, X: Any, *, offset: Any = None) -> pd.DataFrame:
+        raise NotImplementedError(
+            "R's NGeDSgam/NGeDSboost predict method does not support type='terms'; "
+            "use predict_component() for a named base learner."
+        )
+
+    def predict_component(
+        self, X: Any, base_learner: str, *, prediction_type: str = "response"
+    ) -> np.ndarray:
+        """Return R's prediction for one named base learner (for example ``f(x)``)."""
+        check_is_fitted(self, "_r_model_")
+        if base_learner not in self._base_learner_lookup_:
+            raise ValueError(f"Unknown base learner {base_learner!r}.")
+        if prediction_type not in {"response", "link"}:
+            raise ValueError("prediction_type must be 'response' or 'link'.")
+        frame = self._prepare_new_data(X)
+        backend = get_backend()
+        return backend.predict(
+            self._r_model_, backend.dataframe_to_r(frame), self.order,
+            prediction_type, base_learner=self._base_learner_lookup_[base_learner],
+        )
+
+
+class GeDSGAMRegressor(_GeDSAdditiveBase):
+    """Additive GeDS estimator backed entirely by ``GeDS::NGeDSgam``."""
+
+    def __init__(
+        self, *, family: str = "gaussian", link: str | None = None,
+        spline_terms: Sequence[Sequence[str | int]] | None = None,
+        linear_features: FeatureSelector = None, order: int = 3,
+        normalize_data: bool = False, min_iterations: int | None = None,
+        max_iterations: int | None = None, phi_gam_exit: float = 0.99,
+        q_gam: int = 2, beta: float = 0.5, phi: float = 0.99,
+        internal_knots: int = 500, q: int = 2, higher_order: bool = True,
+    ) -> None:
+        self.family = family
+        self.link = link
+        self.spline_terms = spline_terms
+        self.linear_features = linear_features
+        self.order = order
+        self.normalize_data = normalize_data
+        self.min_iterations = min_iterations
+        self.max_iterations = max_iterations
+        self.phi_gam_exit = phi_gam_exit
+        self.q_gam = q_gam
+        self.beta = beta
+        self.phi = phi
+        self.internal_knots = internal_knots
+        self.q = q
+        self.higher_order = higher_order
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> "GeDSGAMRegressor":
+        self._validate_configuration()
+        if not 0 < self.phi_gam_exit < 1:
+            raise ValueError("phi_gam_exit must lie in (0, 1).")
+        if not isinstance(self.q_gam, (int, np.integer)) or self.q_gam < 1:
+            raise ValueError("q_gam must be a positive integer.")
+        if not isinstance(self.internal_knots, (int, np.integer)) or self.internal_knots < 0:
+            raise ValueError("internal_knots must be a non-negative integer.")
+        frame, formula, weights = self._prepare_additive_data(X, y, sample_weight)
+        if self.family.lower() == "binomial":
+            levels = np.unique(frame["response"])
+            if len(levels) != 2 or not np.array_equal(levels, [0, 1]):
+                raise ValueError("Binomial GAM responses must contain both 0 and 1.")
+            frame["response"] = pd.Categorical(
+                frame["response"].astype(int).astype(str), categories=["0", "1"]
+            )
+        backend = get_backend()
+        kwargs: dict[str, Any] = {
+            "family": backend.family(self.family, self.link),
+            "normalize_data": self.normalize_data,
+            "phi_gam_exit": self.phi_gam_exit, "q_gam": self.q_gam,
+            "beta": self.beta, "phi": self.phi,
+            "internal_knots": self.internal_knots, "q": self.q,
+            "higher_order": self.higher_order,
+        }
+        for name, value in (("weights", weights), ("min_iterations", self.min_iterations),
+                            ("max_iterations", self.max_iterations)):
+            if value is not None:
+                kwargs[name] = value
+        model = backend.fit("NGeDSgam", backend.formula(formula), backend.dataframe_to_r(frame), **kwargs)
+        self._finish_fit(model)
+        return self
+
+
+class GeDSBoostRegressor(_GeDSAdditiveBase):
+    """Boosted GeDS estimator backed entirely by ``GeDS::NGeDSboost``."""
+
+    def __init__(
+        self, *, family: str = "gaussian", link: str | None = None,
+        spline_terms: Sequence[Sequence[str | int]] | None = None,
+        linear_features: FeatureSelector = None, order: int = 3,
+        normalize_data: bool = False, initial_learner: bool = True,
+        int_knots_init: int = 2, min_iterations: int | None = None,
+        max_iterations: int | None = None, shrinkage: float = 1.0,
+        phi_boost_exit: float = 0.99, q_boost: int = 2,
+        beta: float = 0.5, phi: float = 0.99,
+        int_knots_boost: int | None = None, q: int = 2,
+        higher_order: bool = True, boosting_with_memory: bool = False,
+    ) -> None:
+        self.family = family
+        self.link = link
+        self.spline_terms = spline_terms
+        self.linear_features = linear_features
+        self.order = order
+        self.normalize_data = normalize_data
+        self.initial_learner = initial_learner
+        self.int_knots_init = int_knots_init
+        self.min_iterations = min_iterations
+        self.max_iterations = max_iterations
+        self.shrinkage = shrinkage
+        self.phi_boost_exit = phi_boost_exit
+        self.q_boost = q_boost
+        self.beta = beta
+        self.phi = phi
+        self.int_knots_boost = int_knots_boost
+        self.q = q
+        self.higher_order = higher_order
+        self.boosting_with_memory = boosting_with_memory
+
+    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> "GeDSBoostRegressor":
+        self._validate_configuration()
+        if not 0 < self.shrinkage <= 1:
+            raise ValueError("shrinkage must lie in (0, 1].")
+        if not 0 < self.phi_boost_exit < 1:
+            raise ValueError("phi_boost_exit must lie in (0, 1).")
+        if not isinstance(self.q_boost, (int, np.integer)) or self.q_boost < 1:
+            raise ValueError("q_boost must be a positive integer.")
+        for name in ("int_knots_init", "int_knots_boost"):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, (int, np.integer)) or value < 0
+            ):
+                raise ValueError(f"{name} must be a non-negative integer or None.")
+        frame, formula, weights = self._prepare_additive_data(X, y, sample_weight)
+        if self.family.lower() == "binomial" and not np.isin(frame["response"], [-1, 1]).all():
+            raise ValueError("Binomial boosting responses must be encoded as -1 and 1.")
+        backend = get_backend()
+        kwargs: dict[str, Any] = {
+            "family": backend.boost_family(self.family),
+            "normalize_data": self.normalize_data,
+            "initial_learner": self.initial_learner,
+            "int.knots_init": self.int_knots_init,
+            "shrinkage": self.shrinkage,
+            "phi_boost_exit": self.phi_boost_exit, "q_boost": self.q_boost,
+            "beta": self.beta, "phi": self.phi, "q": self.q,
+            "higher_order": self.higher_order,
+            "boosting_with_memory": self.boosting_with_memory,
+        }
+        if self.link is not None:
+            kwargs["link"] = self.link
+        for name, value in (("weights", weights), ("min_iterations", self.min_iterations),
+                            ("max_iterations", self.max_iterations),
+                            ("int.knots_boost", self.int_knots_boost)):
+            if value is not None:
+                kwargs[name] = value
+        model = backend.fit("NGeDSboost", backend.formula(formula), backend.dataframe_to_r(frame), **kwargs)
+        self._finish_fit(model)
+        return self

@@ -1,11 +1,18 @@
 """Python access to the GeDS R package."""
 
 from ._backend import BackendUnavailableError, diagnostics
-from ._estimators import GeDSGeneralizedRegressor, GeDSRegressor
+from ._estimators import (
+    GeDSBoostRegressor,
+    GeDSGAMRegressor,
+    GeDSGeneralizedRegressor,
+    GeDSRegressor,
+)
 from ._plotting import plot_fit
 
 __all__ = [
     "BackendUnavailableError",
+    "GeDSBoostRegressor",
+    "GeDSGAMRegressor",
     "GeDSGeneralizedRegressor",
     "GeDSRegressor",
     "diagnostics",

@@ -16,7 +16,7 @@ statistical calculations.
 | `coef()`, `knots()`, `deviance()` | Available for selected order | Seeded weighted coefficients match an independent R fit; broaden knot and deviance parity tests. |
 | `confint()` and `logLik()` | Available locally through order-specific methods | Confidence interval values and names match R for univariate and bivariate fits; Poisson and bivariate log likelihoods match R. |
 | `shapeConstrain()` | Missing | Evaluate a separate post-fit API after testing supported shapes and model types. |
-| `NGeDSgam()` and `NGeDSboost()` | Missing | Consider separate estimators after the core model API stabilizes. |
+| `NGeDSgam()` and `NGeDSboost()` | Available as `GeDSGAMRegressor` and `GeDSBoostRegressor` | Extend parity tests to additional families, mixed terms, and orders. R remains the sole fitting implementation. |
 | `Derive()`, `Integrate()`, `PPolyRep()` | Missing | Offer model methods only after checking input/output forms and use cases. |
 | Cross-validation helper | Missing | Evaluate whether scikit-learn's cross-validation already covers the Python use case. |
 | R plotting | Python `plot_fit()` covers univariate fits | Extend plotting only with clear model-specific semantics. |
