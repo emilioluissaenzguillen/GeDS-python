@@ -23,6 +23,7 @@ class BackendUnavailableError(RuntimeError):
 
 _DLL_HANDLES: list[Any] = []
 MIN_GEDS_VERSION = "0.3.6"
+REQUIRED_GEDS_CAPABILITIES = {"offset_glm_v1", "terms_matrix_v1"}
 
 
 def _version_key(path: Path) -> tuple[int, ...]:
@@ -175,6 +176,18 @@ class RBackend:
                 f"GeDS {self.geds_version} is installed, but geds-python "
                 f"requires GeDS >= {MIN_GEDS_VERSION}."
             )
+        capabilities = self.ro.r(
+            "get0('.GeDS_python_bridge_capabilities', "
+            "envir=asNamespace('GeDS'), inherits=FALSE)"
+        )
+        available = set() if capabilities is self.ro.NULL else set(map(str, capabilities))
+        missing = REQUIRED_GEDS_CAPABILITIES - available
+        if missing:
+            raise BackendUnavailableError(
+                "This GeDS R build lacks Python bridge fixes "
+                f"({', '.join(sorted(missing))}). Install the GeDS GitHub "
+                "commit specified in the geds-python README."
+            )
 
     @contextmanager
     def locked(self) -> Iterator[None]:
@@ -214,12 +227,22 @@ class RBackend:
 
     def predict(
         self, model: Any, data: Any, order: int, prediction_type: str
-    ) -> np.ndarray:
+    ) -> np.ndarray | pd.DataFrame:
         with self.locked():
             result = self.stats.predict(
                 model, newdata=data, n=order, type=prediction_type
             )
-        return np.asarray(result, dtype=float)
+            values = np.array(result, dtype=float, copy=True)
+            if prediction_type == "terms":
+                names = self.ro.r("colnames")(result)
+                if values.ndim != 2 or names is self.ro.NULL:
+                    raise BackendUnavailableError(
+                        "This GeDS R build does not return named term predictions. "
+                        "Install the GeDS GitHub prediction fixes."
+                    )
+                columns = [str(name) for name in names]
+                return pd.DataFrame(values, columns=columns)
+        return values
 
     def coefficients(self, model: Any, order: int) -> Any:
         with self.locked():
@@ -234,6 +257,19 @@ class RBackend:
     def deviance(self, model: Any, order: int) -> float:
         with self.locked():
             return float(self.stats.deviance(model, n=order)[0])
+
+    def log_likelihood(self, model: Any, order: int) -> float:
+        with self.locked():
+            return float(self.stats.logLik(model, n=order)[0])
+
+    def confidence_intervals(
+        self, model: Any, order: int, level: float
+    ) -> pd.DataFrame:
+        with self.locked():
+            intervals = self.stats.confint(model, n=order, level=level)
+            names = [str(name) for name in self.ro.r("rownames")(intervals)]
+            values = np.array(intervals, dtype=float, copy=True)
+        return pd.DataFrame(values, index=names, columns=["lower", "upper"])
 
     def component(self, model: Any, name: str) -> Any:
         try:
@@ -253,11 +289,11 @@ class RBackend:
                 return dict(zip(names, converted))
             return converted
         if isinstance(value, vectors.StrVector):
-            result = np.asarray(value, dtype=str)
+            result = np.array(value, dtype=str, copy=True)
         elif isinstance(
             value, (vectors.FloatVector, vectors.IntVector, vectors.BoolVector)
         ):
-            result = np.asarray(value)
+            result = np.array(value, copy=True)
         else:
             return value
         return result.item() if result.ndim == 0 else result

@@ -21,6 +21,13 @@ FeatureSelector = Sequence[str | int] | None
 class _GeDSBase(RegressorMixin, BaseEstimator):
     _fit_function = ""
 
+    @staticmethod
+    def _offset_array(offset: Any, length: int) -> np.ndarray:
+        values = np.asarray(offset, dtype=float)
+        if values.ndim != 1 or len(values) != length or not np.isfinite(values).all():
+            raise ValueError("offset must contain one finite value per observation.")
+        return values
+
     def _validate_configuration(self) -> None:
         if self.order not in (2, 3, 4):
             raise ValueError("order must be 2, 3, or 4.")
@@ -100,7 +107,7 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         return indices
 
     def _prepare_training_data(
-        self, X: Any, y: Any, sample_weight: Any
+        self, X: Any, y: Any, sample_weight: Any, offset: Any
     ) -> tuple[pd.DataFrame, str, Any | None]:
         frame, named_input = self._frame(X)
         y_array = np.asarray(y, dtype=float)
@@ -115,6 +122,8 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         )
         if not spline:
             raise ValueError("At least one spline feature is required.")
+        if offset is not None and len(spline) != 1:
+            raise ValueError("offset currently requires exactly one spline feature.")
         remainder = [index for index in range(len(columns)) if index not in spline]
         linear = self._resolve(self.linear_features, columns, default=remainder)
         overlap = sorted(set(spline).intersection(linear))
@@ -150,7 +159,13 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         internal.insert(0, "response", y_array)
         spline_term = "f(" + ", ".join(self._internal_columns_[i] for i in spline) + ")"
         linear_terms = [self._internal_columns_[i] for i in linear]
-        formula = "response ~ " + " + ".join([spline_term, *linear_terms])
+        self._has_offset_ = offset is not None
+        if self._has_offset_:
+            internal["geds_offset"] = self._offset_array(offset, len(frame))
+        formula_terms = [spline_term, *linear_terms]
+        if self._has_offset_:
+            formula_terms.append("offset(geds_offset)")
+        formula = "response ~ " + " + ".join(formula_terms)
         self.formula_ = formula
 
         weights = None
@@ -167,7 +182,7 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
             weights = get_backend().vector(weight_array)
         return internal, formula, weights
 
-    def _prepare_new_data(self, X: Any) -> pd.DataFrame:
+    def _prepare_new_data(self, X: Any, offset: Any = None) -> pd.DataFrame:
         check_is_fitted(self, "_r_model_")
         frame, named_input = self._frame(X)
         if frame.shape[1] != self.n_features_in_:
@@ -193,6 +208,12 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         if non_numeric:
             raise TypeError(f"Spline features must be numeric; got {non_numeric}.")
         frame.columns = self._internal_columns_
+        if self._has_offset_:
+            if offset is None:
+                raise ValueError("This model requires offset for prediction.")
+            frame["geds_offset"] = self._offset_array(offset, len(frame))
+        elif offset is not None:
+            raise ValueError("offset was not supplied when this model was fitted.")
         return frame
 
     def _common_fit_kwargs(self, weights: Any | None) -> dict[str, Any]:
@@ -228,19 +249,27 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         self.deviance_ = backend.deviance(model, self.order)
         self.n_iter_ = backend.component(model, "iters")
 
-    def predict(self, X: Any) -> np.ndarray:
-        frame = self._prepare_new_data(X)
+    def predict(self, X: Any, *, offset: Any = None) -> np.ndarray:
+        frame = self._prepare_new_data(X, offset)
         backend = get_backend()
         return backend.predict(
             self._r_model_, backend.dataframe_to_r(frame), self.order, "response"
         )
 
-    def predict_link(self, X: Any) -> np.ndarray:
+    def predict_link(self, X: Any, *, offset: Any = None) -> np.ndarray:
         """Return predictions on the link scale."""
-        frame = self._prepare_new_data(X)
+        frame = self._prepare_new_data(X, offset)
         backend = get_backend()
         return backend.predict(
             self._r_model_, backend.dataframe_to_r(frame), self.order, "link"
+        )
+
+    def predict_terms(self, X: Any, *, offset: Any = None) -> pd.DataFrame:
+        """Return R's spline and parametric contributions on the link scale."""
+        frame = self._prepare_new_data(X, offset)
+        backend = get_backend()
+        return backend.predict(
+            self._r_model_, backend.dataframe_to_r(frame), self.order, "terms"
         )
 
     def get_coefficients(self, order: int | None = None) -> Any:
@@ -254,6 +283,33 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         selected_order = self.order if order is None else order
         self._validate_requested_order(selected_order)
         return get_backend().knots(self._r_model_, selected_order)
+
+    def get_deviance(self, order: int | None = None) -> float:
+        """Return the R GeDS deviance for a selected spline order."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        return get_backend().deviance(self._r_model_, selected_order)
+
+    def get_log_likelihood(self, order: int | None = None) -> float:
+        """Return the R GeDS log likelihood for a selected spline order."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        return get_backend().log_likelihood(self._r_model_, selected_order)
+
+    def get_confidence_intervals(
+        self, order: int | None = None, *, level: float = 0.95
+    ) -> pd.DataFrame:
+        """Return R GeDS coefficient intervals with lower and upper columns."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        if not np.isfinite(level) or not 0 < level < 1:
+            raise ValueError("level must be a finite number strictly between 0 and 1.")
+        return get_backend().confidence_intervals(
+            self._r_model_, selected_order, level
+        )
 
     def _validate_requested_order(self, order: int) -> None:
         if order not in (2, 3, 4):
@@ -313,9 +369,11 @@ class GeDSRegressor(_GeDSBase):
         self.higher_order = higher_order
         self.verbose = verbose
 
-    def fit(self, X: Any, y: Any, sample_weight: Any = None) -> "GeDSRegressor":
+    def fit(
+        self, X: Any, y: Any, sample_weight: Any = None, *, offset: Any = None
+    ) -> "GeDSRegressor":
         self._validate_configuration()
-        frame, formula, weights = self._prepare_training_data(X, y, sample_weight)
+        frame, formula, weights = self._prepare_training_data(X, y, sample_weight, offset)
         backend = get_backend()
         model = backend.fit(
             self._fit_function,
@@ -368,10 +426,10 @@ class GeDSGeneralizedRegressor(_GeDSBase):
         self.verbose = verbose
 
     def fit(
-        self, X: Any, y: Any, sample_weight: Any = None
+        self, X: Any, y: Any, sample_weight: Any = None, *, offset: Any = None
     ) -> "GeDSGeneralizedRegressor":
         self._validate_configuration()
-        frame, formula, weights = self._prepare_training_data(X, y, sample_weight)
+        frame, formula, weights = self._prepare_training_data(X, y, sample_weight, offset)
         backend = get_backend()
         kwargs = self._common_fit_kwargs(weights)
         kwargs["family"] = backend.family(self.family, self.link)

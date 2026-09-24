@@ -6,6 +6,22 @@ The project follows [Semantic Versioning](https://semver.org/). Versions use
 the Python packaging form of pre-release identifiers, such as `0.1.0a1` for
 the first alpha release.
 
+## 0.1.0a4 - release candidate (not published)
+
+- Begin an R-to-Python feature audit for the next coordinated release.
+- Add order-specific access to R's deviance, log likelihood, and coefficient
+  confidence intervals.
+- Add univariate fit/prediction offsets and named `predict_terms()` output,
+  delegated to the locally fixed R package. These require the corresponding
+  R GitHub changes before publication.
+- Expand independent R/Python parity tests for weighted normal and Poisson
+  fits, bivariate fits and confidence intervals; clarify joint-spline feature
+  selection.
+- Copy arrays extracted from R into Python-owned memory so later R calls cannot
+  change stored coefficients, knots, or predictions.
+- Require GeDS 0.3.6 with the Python bridge capability marker, and pin the
+  tested GitHub commit in installation and CI instructions.
+
 ## 0.1.0a3 - 2026-09-23
 
 - Add `python -m geds.check` for human-readable or JSON environment checks.

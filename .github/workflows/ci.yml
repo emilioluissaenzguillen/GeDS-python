@@ -29,6 +29,7 @@ jobs:
           install.packages("remotes")
           remotes::install_git(
             "https://github.com/emilioluissaenzguillen/GeDS.git",
+            ref = "91b8ddd13aae8f39994c87fc356f05da4799f911",
             dependencies = NA,
             upgrade = "never"
           )
