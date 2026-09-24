@@ -22,7 +22,8 @@ class BackendUnavailableError(RuntimeError):
 
 
 _DLL_HANDLES: list[Any] = []
-MIN_GEDS_VERSION = "0.3.6.9000"
+MIN_GEDS_VERSION = "0.3.6"
+REQUIRED_GEDS_CAPABILITIES = {"offset_glm_v1", "terms_matrix_v1"}
 
 
 def _version_key(path: Path) -> tuple[int, ...]:
@@ -174,6 +175,18 @@ class RBackend:
             raise BackendUnavailableError(
                 f"GeDS {self.geds_version} is installed, but geds-python "
                 f"requires GeDS >= {MIN_GEDS_VERSION}."
+            )
+        capabilities = self.ro.r(
+            "get0('.GeDS_python_bridge_capabilities', "
+            "envir=asNamespace('GeDS'), inherits=FALSE)"
+        )
+        available = set() if capabilities is self.ro.NULL else set(map(str, capabilities))
+        missing = REQUIRED_GEDS_CAPABILITIES - available
+        if missing:
+            raise BackendUnavailableError(
+                "This GeDS R build lacks Python bridge fixes "
+                f"({', '.join(sorted(missing))}). Install the GeDS GitHub "
+                "commit specified in the geds-python README."
             )
 
     @contextmanager

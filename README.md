@@ -9,7 +9,7 @@ model serialization.
 ## Requirements
 
 - R 4.4 or newer (R 4.6.1 is used for development)
-- GeDS 0.3.6.9000 or newer
+- GeDS 0.3.6 or newer with the Python bridge fixes
 - Python 3.10 or newer
 
 Install the Python package, including the optional plotting dependency used in
@@ -20,28 +20,26 @@ python -m pip install "geds-python[plot]"
 ```
 
 Install the R package separately, using R 4.6.1 or another supported R
-installation. The required GeDS development version is available from its
-GitHub repository:
+installation. Install the tested GeDS 0.3.6 build from GitHub:
 
 ```r
 install.packages("remotes")
 remotes::install_git(
   "https://github.com/emilioluissaenzguillen/GeDS.git",
-  ref = "2501e11f510ebf81598b4852fbaea7667507f565",
+  ref = "91b8ddd13aae8f39994c87fc356f05da4799f911",
   dependencies = NA, upgrade = "never"
 )
 ```
 
-As of September 2026, [CRAN lists GeDS 0.3.5](https://cran.r-project.org/package=GeDS),
-which is below this wrapper's minimum requirement. `install.packages("GeDS")`
-alone will not satisfy the Python backend until CRAN provides a version
-containing the required fit and prediction fixes.
+An older GeDS build, even one reporting version `0.3.6`, may lack the fixes
+required by this wrapper. `install.packages("GeDS")` alone is not guaranteed
+to provide them while the CRAN review follows its separate schedule.
 Check the installed R version with `packageVersion("GeDS")`.
 
 On Windows, building the GitHub source package requires Rtools compatible
-with the selected R installation. The GitHub development version
-`0.3.6.9000` distinguishes the required fit and prediction fixes from the
-earlier `0.3.6` source.
+with the selected R installation. GeDS remains version `0.3.6` on GitHub;
+the wrapper checks an internal compatibility marker for the fit and prediction
+fixes as well as the package version.
 
 The wrapper discovers the newest R installation under `Program Files/R` on
 Windows or uses `Rscript` from `PATH` on other platforms. Set `R_HOME` to select

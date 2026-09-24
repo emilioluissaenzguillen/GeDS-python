@@ -29,8 +29,8 @@ def test_diagnostics():
     info = geds.diagnostics()
     assert "R version 4." in info["r_version"]
     installed = tuple(int(part) for part in info["geds_version"].split("."))
-    assert installed >= (0, 3, 6, 9000)
-    assert info["minimum_geds_version"] == "0.3.6.9000"
+    assert installed >= (0, 3, 6)
+    assert info["minimum_geds_version"] == "0.3.6"
 
 
 def test_environment_check(capsys):

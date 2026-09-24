@@ -19,8 +19,8 @@ the first alpha release.
   selection.
 - Copy arrays extracted from R into Python-owned memory so later R calls cannot
   change stored coefficients, knots, or predictions.
-- Require GeDS 0.3.6.9000 from GitHub to identify the R fit and prediction
-  fixes needed by the Python API.
+- Require GeDS 0.3.6 with the Python bridge capability marker, and pin the
+  tested GitHub commit in installation and CI instructions.
 
 ## 0.1.0a3 - 2026-09-23
 
