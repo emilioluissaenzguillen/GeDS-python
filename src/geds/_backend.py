@@ -290,6 +290,43 @@ class RBackend:
             values = np.array(intervals, dtype=float, copy=True)
         return pd.DataFrame(values, index=names, columns=["lower", "upper"])
 
+    def derive(self, model: Any, x: Any, order: int, spline_order: int) -> np.ndarray:
+        with self.locked():
+            result = self.geds.Derive(
+                model, order=order, x=self.vector(x), n=spline_order
+            )
+            return np.array(result, dtype=float, copy=True)
+
+    def integrate(self, model: Any, lower: Any, upper: Any, spline_order: int) -> np.ndarray:
+        with self.locked():
+            result = self.geds.Integrate(
+                model, **{"from": self.vector(lower)}, to=self.vector(upper),
+                n=spline_order,
+            )
+            return np.array(result, dtype=float, copy=True)
+
+    def piecewise_polynomial(self, model: Any, spline_order: int) -> tuple[np.ndarray, np.ndarray]:
+        with self.locked():
+            result = self.geds.PPolyRep(model, n=spline_order)
+            knots = np.array(result.rx2("knots"), dtype=float, copy=True)
+            coefficients = np.array(result.rx2("coefficients"), dtype=float, copy=True)
+            return knots, coefficients
+
+    def shape_constrain(
+        self, model: Any, spline_order: int, constraints: list[str],
+        eps: float, ridge: float, base_learner: str | None,
+    ) -> Any:
+        with self.locked():
+            kwargs: dict[str, Any] = {
+                "n": spline_order,
+                "shape_constraint": self.ro.StrVector(constraints),
+                "eps": eps,
+                "ridge": ridge,
+            }
+            if base_learner is not None:
+                kwargs["base_learner"] = base_learner
+            return self.geds.shapeConstrain(model, **kwargs)
+
     def component(self, model: Any, name: str) -> Any:
         try:
             return self.to_python(model.rx2(name))

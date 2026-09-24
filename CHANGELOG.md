@@ -8,6 +8,9 @@ the first alpha release.
 
 ## Unreleased
 
+- Expose R's `Derive()`, `Integrate()`, `PPolyRep()`, and `shapeConstrain()`
+  through fitted-model methods, with direct R parity tests and explicit model
+  restrictions.
 - Add additive GAM and gradient-boosting estimators backed by the R package's
   `NGeDSgam()` and `NGeDSboost()` functions, with independently checked R/Python
   predictions and no duplicate statistical implementation.

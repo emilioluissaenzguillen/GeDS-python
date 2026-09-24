@@ -151,6 +151,34 @@ methods. Confidence intervals are returned as a pandas DataFrame with `lower`
 and `upper` columns. As in R, these are coefficient intervals, not confidence
 bands for the fitted curve.
 
+For a fitted univariate spline without extra linear features, R's calculus
+and spline-conversion utilities are available as model methods:
+
+```python
+slopes = model.derive([-0.5, 0.0, 0.5], derivative_order=1)
+areas = model.integrate(-1.0, [-0.5, 0.0, 0.5])
+piece_knots, piece_coefficients = model.piecewise_polynomial()
+```
+
+`derive()` and `integrate()` operate on the predictor (link) scale, as in R.
+`piecewise_polynomial()` returns the R `PPolyRep()` knot vector and coefficient
+matrix; its last coefficient row is extraneous in R's representation. These
+methods use the estimator's selected spline order unless `order=` is given.
+
+For a normal univariate fit, impose a shape constraint without changing the
+original fitted model:
+
+```python
+increasing_model = model.shape_constrain("increasing")
+increasing_and_convex = model.shape_constrain(["increasing", "convex"])
+```
+
+This calls R's `shapeConstrain()` and returns a new Python estimator. R also
+supports constraints on one selected univariate smoother in Gaussian GAM and
+boosting fits, via `shape_constrain(..., base_learner="f(x)")`. Those additive
+fits must use `normalize_data=False`. Constrained fits do not provide the usual
+unconstrained coefficient confidence intervals.
+
 For count data, the generalized estimator uses `GeDS::GGeDS()` and supports
 both response-scale and link-scale prediction:
 

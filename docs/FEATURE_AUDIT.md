@@ -15,9 +15,9 @@ statistical calculations.
 | `predict(..., type = "terms")` | Available as `predict_terms()` | The required R term-matrix fix is in the pinned GitHub commit. |
 | `coef()`, `knots()`, `deviance()` | Available for selected order | Seeded weighted coefficients match an independent R fit; broaden knot and deviance parity tests. |
 | `confint()` and `logLik()` | Available locally through order-specific methods | Confidence interval values and names match R for univariate and bivariate fits; Poisson and bivariate log likelihoods match R. |
-| `shapeConstrain()` | Missing | Evaluate a separate post-fit API after testing supported shapes and model types. |
+| `shapeConstrain()` | Available as `shape_constrain()` for supported normal, GAM, and boosted models | Extend tests to mixed additive terms and combined shape constraints. |
 | `NGeDSgam()` and `NGeDSboost()` | Available as `GeDSGAMRegressor` and `GeDSBoostRegressor` | Extend parity tests to additional families, mixed terms, and orders. R remains the sole fitting implementation. |
-| `Derive()`, `Integrate()`, `PPolyRep()` | Missing | Offer model methods only after checking input/output forms and use cases. |
+| `Derive()`, `Integrate()`, `PPolyRep()` | Available as `derive()`, `integrate()`, and `piecewise_polynomial()` for univariate spline fits | Extend tests to generalized fits and alternate spline orders. |
 | Cross-validation helper | Missing | Evaluate whether scikit-learn's cross-validation already covers the Python use case. |
 | R plotting | Python `plot_fit()` covers univariate fits | Extend plotting only with clear model-specific semantics. |
 
