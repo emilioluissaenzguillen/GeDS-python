@@ -15,10 +15,10 @@ statistical calculations.
 | `predict(..., type = "terms")` | Available as `predict_terms()` | The required R term-matrix fix is in the pinned GitHub commit. |
 | `coef()`, `knots()`, `deviance()` | Available for selected order | Seeded weighted coefficients match an independent R fit; broaden knot and deviance parity tests. |
 | `confint()` and `logLik()` | Available locally through order-specific methods | Confidence interval values and names match R for univariate and bivariate fits; Poisson and bivariate log likelihoods match R. |
-| `shapeConstrain()` | Available as `shape_constrain()` for supported normal, GAM, and boosted models | Extend tests to mixed additive terms and combined shape constraints. |
+| `shapeConstrain()` | Available as `shape_constrain()` for supported normal, GAM, and boosted models | Mixed additive terms and basic constraints have R parity tests; broaden combined-constraint and family coverage where R permits it. |
 | `NGeDSgam()` and `NGeDSboost()` | Available as `GeDSGAMRegressor` and `GeDSBoostRegressor` | Extend parity tests to additional families, mixed terms, and orders. R remains the sole fitting implementation. |
-| `Derive()`, `Integrate()`, `PPolyRep()` | Available as `derive()`, `integrate()`, and `piecewise_polynomial()` for univariate spline fits | Extend tests to generalized fits and alternate spline orders. |
-| Cross-validation helper | Missing | Evaluate whether scikit-learn's cross-validation already covers the Python use case. |
+| `Derive()`, `Integrate()`, `PPolyRep()` | Available as `derive()`, `integrate()`, and `piecewise_polynomial()` for univariate spline fits | Direct R parity covers orders 2, 3, and 4; generalized Poisson derivative and output shape are also tested. |
+| Cross-validation helper | Use scikit-learn's `cross_val_score()` or `GridSearchCV`; no GeDS-specific helper needed | Sequential 3-fold cross-validation is tested; parallel workers are not yet supported. |
 | R plotting | Python `plot_fit()` covers univariate fits | Extend plotting only with clear model-specific semantics. |
 
 ## Priority for local development

@@ -11,6 +11,8 @@ the first alpha release.
 - Expose R's `Derive()`, `Integrate()`, `PPolyRep()`, and `shapeConstrain()`
   through fitted-model methods, with direct R parity tests and explicit model
   restrictions.
+- Check alternate spline orders, generalized-model utilities, mixed-term
+  additive constraints, and sequential scikit-learn cross-validation.
 - Add additive GAM and gradient-boosting estimators backed by the R package's
   `NGeDSgam()` and `NGeDSboost()` functions, with independently checked R/Python
   predictions and no duplicate statistical implementation.

@@ -151,6 +151,11 @@ methods. Confidence intervals are returned as a pandas DataFrame with `lower`
 and `upper` columns. As in R, these are coefficient intervals, not confidence
 bands for the fitted curve.
 
+The estimators also work with standard scikit-learn tools such as
+`cross_val_score()` and `GridSearchCV`. Use sequential execution (`n_jobs=1`)
+when cross-validating: the wrapper embeds R in the Python process, and
+parallel-worker behavior is not part of the supported interface.
+
 For a fitted univariate spline without extra linear features, R's calculus
 and spline-conversion utilities are available as model methods:
 
