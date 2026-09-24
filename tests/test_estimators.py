@@ -16,6 +16,7 @@ from geds import (
     GeDSGAMRegressor,
     GeDSGeneralizedRegressor,
     GeDSRegressor,
+    cross_validate_geds,
     plot_fit,
 )
 from geds.check import main as check_main
@@ -241,6 +242,55 @@ def test_sklearn_cross_validation_works_sequentially():
         estimator, {"phi": [0.85, 0.9]}, cv=2, n_jobs=1
     ).fit(X, y)
     assert search.best_estimator_.predict(X[:3]).shape == (3,)
+
+
+def test_r_specialized_cross_validation_returns_grid_summary():
+    x = np.linspace(-1, 1, 45)
+    X = pd.DataFrame({"x": x})
+    y = 2 + np.sin(3 * x)
+    estimator = GeDSRegressor(order=2, higher_order=False)
+    result = cross_validate_geds(
+        estimator, X, y,
+        {"beta": [0.5], "phi": [0.9, 0.95], "q": [2]},
+        n_folds=2, n_cores=1, random_state=123,
+    )
+    assert len(result.best_params) == 1
+    assert len(result.results) == 2
+    assert np.isfinite(result.results.select_dtypes(include="number").to_numpy()).all()
+    assert not hasattr(estimator, "_r_model_")
+
+
+@pytest.mark.parametrize("estimator", [
+    GeDSGeneralizedRegressor(order=2, higher_order=False),
+    GeDSGAMRegressor(order=2, higher_order=False),
+    GeDSBoostRegressor(order=2, higher_order=False, max_iterations=3),
+])
+def test_r_specialized_cross_validation_model_variants(estimator):
+    x = np.linspace(-1, 1, 45)
+    result = cross_validate_geds(
+        estimator, pd.DataFrame({"x": x}), 2 + np.sin(3 * x),
+        {"beta": [0.5], "phi": [0.95], "q": [2]},
+        n_folds=2, n_cores=1, random_state=123,
+    )
+    assert len(result.best_params) == len(result.results) == 1
+
+
+def test_r_specialized_cross_validation_rejects_unsupported_settings():
+    x = np.linspace(-1, 1, 20)
+    X = pd.DataFrame({"x": x})
+    y = 2 + x
+    with pytest.raises(ValueError, match="non-Gaussian"):
+        cross_validate_geds(
+            GeDSGeneralizedRegressor(family="poisson"), X, y, {}, n_folds=2
+        )
+    with pytest.raises(ValueError, match="does not forward"):
+        cross_validate_geds(
+            GeDSRegressor(min_internal_knots=3), X, y, {}, n_folds=2
+        )
+    with pytest.raises(ValueError, match="Unsupported parameter"):
+        cross_validate_geds(
+            GeDSRegressor(), X, y, {"shrinkage": [0.5]}, n_folds=2
+        )
 
 
 def test_ggeds_poisson_reference_values():
@@ -705,6 +755,46 @@ def test_additive_mixed_terms_shape_constraint_matches_r(estimator_class):
         backend.predict(direct, backend.dataframe_to_r(internal), 3, "response"),
     )
     np.testing.assert_allclose(model.predict(X), before)
+
+
+def test_boosting_importance_and_iterations_match_r():
+    x = np.linspace(-1, 1, 50)
+    X = pd.DataFrame({"x": x, "z": np.cos(3 * x)})
+    y = np.sin(2 * x) + 0.2 * X["z"]
+    model = GeDSBoostRegressor(
+        spline_terms=(("x",), ("z",)), max_iterations=3,
+        int_knots_boost=4,
+    ).fit(X, y)
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        direct = backend.geds.bl_imp(
+            model._r_model_, boosting_iter_only=True
+        )
+        names = list(backend.ro.r("names")(direct))
+        n_iterations = int(backend.geds.N_boost_iter(model._r_model_)[0])
+    importance = model.get_base_learner_importance(
+        boosting_iterations_only=True
+    )
+    np.testing.assert_allclose(importance.to_numpy(), np.asarray(direct))
+    assert importance.index.tolist() == [
+        {"f(x0)": "f(x)", "f(x1)": "f(z)"}.get(name, name) for name in names
+    ]
+    assert int(model.n_iter_[0]) == n_iterations
+
+
+def test_boosting_diagnostics_save_r_plot(tmp_path):
+    x = np.linspace(-1, 1, 50)
+    X = pd.DataFrame({"x": x})
+    model = GeDSBoostRegressor(
+        max_iterations=3, int_knots_boost=4
+    ).fit(X, 2 + np.sin(3 * x))
+    target = tmp_path / "boosting.pdf"
+    assert model.save_boosting_diagnostics(
+        target, iterations=[0], final_fits=True
+    ) == target
+    assert target.stat().st_size > 1000
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        model.save_boosting_diagnostics(target)
 
 
 def test_additive_binomial_response_conventions():

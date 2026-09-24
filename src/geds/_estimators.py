@@ -800,3 +800,45 @@ class GeDSBoostRegressor(_GeDSAdditiveBase):
         model = backend.fit("NGeDSboost", backend.formula(formula), backend.dataframe_to_r(frame), **kwargs)
         self._finish_fit(model)
         return self
+
+    def get_base_learner_importance(
+        self, *, boosting_iterations_only: bool = False
+    ) -> pd.Series:
+        """Return R ``bl_imp()`` in-bag risk reductions by base learner."""
+        check_is_fitted(self, "_r_model_")
+        importance = get_backend().base_learner_importance(
+            self._r_model_, boosting_iterations_only
+        )
+        inverse = {value: key for key, value in self._base_learner_lookup_.items()}
+        importance.index = [inverse.get(name, name) for name in importance.index]
+        return importance
+
+    def save_boosting_diagnostics(
+        self, path: str | Path, *, iterations: Sequence[int] = (0,),
+        final_fits: bool = False, overwrite: bool = False,
+    ) -> Path:
+        """Save R ``visualize_boosting()`` plots as a multipage PDF."""
+        check_is_fitted(self, "_r_model_")
+        if self.n_features_in_ != 1 or len(self.spline_terms_) != 1:
+            raise ValueError(
+                "R boosting visualization requires one univariate spline feature."
+            )
+        target = Path(path)
+        if target.suffix.lower() != ".pdf":
+            raise ValueError("path must name a PDF file.")
+        if target.exists() and not overwrite:
+            raise FileExistsError(f"Refusing to overwrite existing file: {target}")
+        selected = list(iterations)
+        n_iterations = int(np.asarray(self.n_iter_).item())
+        if not selected or any(
+            not isinstance(value, (int, np.integer))
+            or value < 0 or value > n_iterations for value in selected
+        ):
+            raise ValueError(
+                "iterations must contain integers from 0 through n_iter_."
+            )
+        get_backend().save_boosting_diagnostics(
+            self._r_model_, target, [int(value) for value in selected],
+            final_fits,
+        )
+        return target

@@ -8,6 +8,12 @@ the first alpha release.
 
 ## Unreleased
 
+- Expose R's boosted base-learner importance alongside its existing iteration
+  count, and clarify remaining specialized R-only utilities in the feature audit.
+- Add a Gaussian-only Python interface to R's specialized `crossv_GeDS()`
+  grid search and its MSE/knot/iteration summaries.
+- Save R's single-learner boosting-iteration visualization as a multipage PDF
+  through a Python model method.
 - Expose R's `Derive()`, `Integrate()`, `PPolyRep()`, and `shapeConstrain()`
   through fitted-model methods, with direct R parity tests and explicit model
   restrictions.

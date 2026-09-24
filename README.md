@@ -156,6 +156,30 @@ The estimators also work with standard scikit-learn tools such as
 when cross-validating: the wrapper embeds R in the Python process, and
 parallel-worker behavior is not part of the supported interface.
 
+R also has a specialized `crossv_GeDS()` routine, which returns a parameter
+grid with cross-validated mean squared error and knot/iteration summaries.
+Use its Python interface when those R-specific results are needed:
+
+```python
+from geds import cross_validate_geds
+
+cv = cross_validate_geds(
+    GeDSRegressor(order=3), X, y,
+    {"beta": [0.5, 0.7], "phi": [0.95], "q": [2]},
+    n_folds=5, n_cores=1, random_state=123,
+)
+print(cv.best_params)
+print(cv.results)
+```
+
+This delegates the entire search to R and does not fit or change the input
+estimator. It currently supports Gaussian models only, accepts the R tuning
+parameters `beta`, `phi`, `q`, and (for boosting) `int_knots_init` and
+`shrinkage`, and defaults to one R worker. R's current non-boost routine does
+not forward other fitting settings; the Python interface rejects custom
+settings it would otherwise silently ignore. Use scikit-learn's grid search
+when you need those settings or a non-Gaussian family.
+
 For a fitted univariate spline without extra linear features, R's calculus
 and spline-conversion utilities are available as model methods:
 
@@ -289,6 +313,7 @@ boost = GeDSBoostRegressor(
 gam_predictions = gam.predict(X)
 boost_predictions = boost.predict(X)
 x_contribution = gam.predict_component(X, "f(x)")
+importance = boost.get_base_learner_importance()
 ```
 
 Both estimators expose `predict_link()`, order-specific coefficients, knots,
@@ -299,6 +324,20 @@ estimators do not offer `predict_terms()`. The GAM wrapper supports the
 families accepted by `GeDSGeneralizedRegressor`; for binomial fits it accepts
 0/1 responses and creates the factor required by R. The boosting
 wrapper maps `gaussian`, `poisson`, `binomial`, and `gamma` to mboost families.
+The fitted boosting estimator's `n_iter_` is R's total boosting iteration
+count. `get_base_learner_importance()` returns R's `bl_imp()` in-bag risk
+reductions as a pandas Series with the original Python feature names.
+For a boosted fit with one univariate spline feature, R's iteration plots can
+be saved to a multipage PDF without opening R directly:
+
+```python
+single_boost = GeDSBoostRegressor(max_iterations=10).fit(X[["x"]], y)
+single_boost.save_boosting_diagnostics(
+    "boosting.pdf", iterations=[0, 1, 2], final_fits=True
+)
+```
+
+The method refuses to replace an existing file unless `overwrite=True`.
 For binomial boosting, R expects responses encoded as -1 and 1. Offset
 prediction is not offered for these additive estimators yet.
 

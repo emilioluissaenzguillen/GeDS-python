@@ -8,14 +8,17 @@ from ._estimators import (
     GeDSRegressor,
 )
 from ._plotting import plot_fit
+from ._validation import GeDSCrossValidationResult, cross_validate_geds
 
 __all__ = [
     "BackendUnavailableError",
     "GeDSBoostRegressor",
+    "GeDSCrossValidationResult",
     "GeDSGAMRegressor",
     "GeDSGeneralizedRegressor",
     "GeDSRegressor",
     "diagnostics",
+    "cross_validate_geds",
     "plot_fit",
 ]
 
