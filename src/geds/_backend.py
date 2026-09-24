@@ -221,17 +221,36 @@ class RBackend:
         function = getattr(self.stats, functions[normalized])
         return function() if link is None else function(link=link)
 
+    def boost_family(self, name: str) -> Any:
+        """Construct an mboost loss family for GeDS's R boosting algorithm."""
+        from rpy2.robjects.packages import importr
+
+        functions = {
+            "gaussian": "Gaussian",
+            "poisson": "Poisson",
+            "binomial": "Binomial",
+            "gamma": "GammaReg",
+        }
+        normalized = name.lower()
+        if normalized not in functions:
+            choices = ", ".join(sorted(functions))
+            raise ValueError(f"Unsupported boosting family {name!r}; choose one of: {choices}.")
+        with self.locked():
+            return getattr(importr("mboost"), functions[normalized])()
+
     def fit(self, function: str, formula: Any, data: Any, **kwargs: Any) -> Any:
         with self.locked():
             return getattr(self.geds, function)(formula, data=data, **kwargs)
 
     def predict(
-        self, model: Any, data: Any, order: int, prediction_type: str
+        self, model: Any, data: Any, order: int, prediction_type: str,
+        *, base_learner: str | None = None,
     ) -> np.ndarray | pd.DataFrame:
         with self.locked():
-            result = self.stats.predict(
-                model, newdata=data, n=order, type=prediction_type
-            )
+            kwargs: dict[str, Any] = {"newdata": data, "n": order, "type": prediction_type}
+            if base_learner is not None:
+                kwargs["base_learner"] = base_learner
+            result = self.stats.predict(model, **kwargs)
             values = np.array(result, dtype=float, copy=True)
             if prediction_type == "terms":
                 names = self.ro.r("colnames")(result)
