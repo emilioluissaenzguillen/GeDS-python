@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "geds-python"
-version = "0.1.0a4"
+version = "0.1.0"
 description = "Python estimators backed by the GeDS R package"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,7 +22,7 @@ maintainers = [
   {name = "Emilio L. Sáenz Guillén", email = "emilioluissaenzguillen@gmail.com"},
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
   "Operating System :: Microsoft :: Windows",
