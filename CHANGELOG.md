@@ -8,6 +8,8 @@ the first alpha release.
 
 ## Unreleased
 
+## 0.1.0 - 2026-09-25
+
 - Expose R's boosted base-learner importance alongside its existing iteration
   count, and clarify remaining specialized R-only utilities in the feature audit.
 - Add a Gaussian-only Python interface to R's specialized `crossv_GeDS()`
