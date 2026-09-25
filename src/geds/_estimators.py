@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import copy
 from pathlib import Path
 import pickle
 from typing import Any, Sequence
@@ -303,6 +304,11 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
     ) -> pd.DataFrame:
         """Return R GeDS coefficient intervals with lower and upper columns."""
         check_is_fitted(self, "_r_model_")
+        if hasattr(self, "shape_constraints_"):
+            raise NotImplementedError(
+                "Standard coefficient confidence intervals are not available "
+                "for shape-constrained fits."
+            )
         selected_order = self.order if order is None else order
         self._validate_requested_order(selected_order)
         if not np.isfinite(level) or not 0 < level < 1:
@@ -310,6 +316,107 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
         return get_backend().confidence_intervals(
             self._r_model_, selected_order, level
         )
+
+    def _require_univariate_spline(self) -> None:
+        check_is_fitted(self, "_r_model_")
+        if len(self._spline_indices_) != 1 or self._linear_indices_:
+            raise ValueError(
+                "This operation requires a fitted univariate spline without "
+                "additional linear features."
+            )
+
+    def derive(
+        self, x: Any, *, derivative_order: int = 1, order: int | None = None
+    ) -> np.ndarray:
+        """Evaluate R ``Derive`` on the predictor scale at one or more x values."""
+        self._require_univariate_spline()
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        if (not isinstance(derivative_order, (int, np.integer))
+                or not 1 <= derivative_order < selected_order):
+            raise ValueError("derivative_order must be an integer from 1 to order - 1.")
+        values = np.atleast_1d(np.asarray(x, dtype=float))
+        if values.ndim != 1 or not len(values) or not np.isfinite(values).all():
+            raise ValueError("x must contain finite numeric values.")
+        return get_backend().derive(
+            self._r_model_, values, derivative_order, selected_order
+        )
+
+    def integrate(
+        self, lower: Any, upper: Any, *, order: int | None = None
+    ) -> np.ndarray:
+        """Evaluate R ``Integrate`` on the predictor scale over given limits."""
+        self._require_univariate_spline()
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        lower_values = np.atleast_1d(np.asarray(lower, dtype=float))
+        upper_values = np.atleast_1d(np.asarray(upper, dtype=float))
+        if lower_values.ndim != 1 or upper_values.ndim != 1 or not len(upper_values):
+            raise ValueError("Integration limits must be scalars or one-dimensional.")
+        if len(lower_values) not in (1, len(upper_values)):
+            raise ValueError("lower must be scalar or have the same length as upper.")
+        if np.isnan(lower_values).any() or np.isnan(upper_values).any():
+            raise ValueError("Integration limits must not be NaN.")
+        return get_backend().integrate(
+            self._r_model_, lower_values, upper_values, selected_order
+        )
+
+    def piecewise_polynomial(
+        self, *, order: int | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return R ``PPolyRep`` knots and polynomial coefficient matrix."""
+        self._require_univariate_spline()
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        return get_backend().piecewise_polynomial(self._r_model_, selected_order)
+
+    def shape_constrain(
+        self, constraints: str | Sequence[str] = "increasing", *,
+        order: int | None = None, base_learner: str | None = None,
+        eps: float = 0.0, ridge: float = 1e-8,
+    ) -> "_GeDSBase":
+        """Return a new estimator constrained by R ``shapeConstrain``."""
+        check_is_fitted(self, "_r_model_")
+        selected_order = self.order if order is None else order
+        self._validate_requested_order(selected_order)
+        selected = [constraints] if isinstance(constraints, str) else list(constraints)
+        allowed = {"increasing", "decreasing", "convex", "concave"}
+        if not selected or len(selected) != len(set(selected)) or not set(selected) <= allowed:
+            raise ValueError(f"constraints must be distinct values from {sorted(allowed)}.")
+        if ({"increasing", "decreasing"} <= set(selected)
+                or {"convex", "concave"} <= set(selected)):
+            raise ValueError("Opposing shape constraints cannot be combined.")
+        if not np.isfinite(eps) or eps < 0 or not np.isfinite(ridge) or ridge <= 0:
+            raise ValueError("eps must be finite and non-negative; ridge must be positive.")
+        if hasattr(self, "_base_learner_lookup_"):
+            if self.family.lower() != "gaussian" or self.normalize_data:
+                raise ValueError("Shape constraints require Gaussian, unnormalized additive fits.")
+            if base_learner is not None:
+                if base_learner not in self._base_learner_lookup_:
+                    raise ValueError(f"Unknown base learner {base_learner!r}.")
+                internal_learner = self._base_learner_lookup_[base_learner]
+                if base_learner not in self.base_learner_names_ or "," in internal_learner:
+                    raise ValueError("base_learner must name a univariate spline term.")
+            else:
+                univariate = [name for name in self.base_learner_names_ if "," not in name]
+                if len(univariate) != 1:
+                    raise ValueError("Specify one univariate spline base_learner.")
+                internal_learner = self._base_learner_lookup_[univariate[0]]
+        else:
+            if self._fit_function != "NGeDS" or len(self._spline_indices_) != 1:
+                raise ValueError("Shape constraints require a univariate normal GeDS fit.")
+            if base_learner is not None:
+                raise ValueError("base_learner applies only to GAM and boosting fits.")
+            internal_learner = None
+        backend = get_backend()
+        result = copy(self)
+        result.order = selected_order
+        constrained = backend.shape_constrain(
+            self._r_model_, selected_order, selected, eps, ridge, internal_learner
+        )
+        result._finish_fit(constrained)
+        result.shape_constraints_ = tuple(selected)
+        return result
 
     def _validate_requested_order(self, order: int) -> None:
         if order not in (2, 3, 4):
@@ -693,3 +800,45 @@ class GeDSBoostRegressor(_GeDSAdditiveBase):
         model = backend.fit("NGeDSboost", backend.formula(formula), backend.dataframe_to_r(frame), **kwargs)
         self._finish_fit(model)
         return self
+
+    def get_base_learner_importance(
+        self, *, boosting_iterations_only: bool = False
+    ) -> pd.Series:
+        """Return R ``bl_imp()`` in-bag risk reductions by base learner."""
+        check_is_fitted(self, "_r_model_")
+        importance = get_backend().base_learner_importance(
+            self._r_model_, boosting_iterations_only
+        )
+        inverse = {value: key for key, value in self._base_learner_lookup_.items()}
+        importance.index = [inverse.get(name, name) for name in importance.index]
+        return importance
+
+    def save_boosting_diagnostics(
+        self, path: str | Path, *, iterations: Sequence[int] = (0,),
+        final_fits: bool = False, overwrite: bool = False,
+    ) -> Path:
+        """Save R ``visualize_boosting()`` plots as a multipage PDF."""
+        check_is_fitted(self, "_r_model_")
+        if self.n_features_in_ != 1 or len(self.spline_terms_) != 1:
+            raise ValueError(
+                "R boosting visualization requires one univariate spline feature."
+            )
+        target = Path(path)
+        if target.suffix.lower() != ".pdf":
+            raise ValueError("path must name a PDF file.")
+        if target.exists() and not overwrite:
+            raise FileExistsError(f"Refusing to overwrite existing file: {target}")
+        selected = list(iterations)
+        n_iterations = int(np.asarray(self.n_iter_).item())
+        if not selected or any(
+            not isinstance(value, (int, np.integer))
+            or value < 0 or value > n_iterations for value in selected
+        ):
+            raise ValueError(
+                "iterations must contain integers from 0 through n_iter_."
+            )
+        get_backend().save_boosting_diagnostics(
+            self._r_model_, target, [int(value) for value in selected],
+            final_fits,
+        )
+        return target

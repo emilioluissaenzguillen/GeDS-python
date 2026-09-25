@@ -290,6 +290,119 @@ class RBackend:
             values = np.array(intervals, dtype=float, copy=True)
         return pd.DataFrame(values, index=names, columns=["lower", "upper"])
 
+    def derive(self, model: Any, x: Any, order: int, spline_order: int) -> np.ndarray:
+        with self.locked():
+            result = self.geds.Derive(
+                model, order=order, x=self.vector(x), n=spline_order
+            )
+            return np.array(result, dtype=float, copy=True)
+
+    def integrate(self, model: Any, lower: Any, upper: Any, spline_order: int) -> np.ndarray:
+        with self.locked():
+            result = self.geds.Integrate(
+                model, **{"from": self.vector(lower)}, to=self.vector(upper),
+                n=spline_order,
+            )
+            return np.array(result, dtype=float, copy=True)
+
+    def piecewise_polynomial(self, model: Any, spline_order: int) -> tuple[np.ndarray, np.ndarray]:
+        with self.locked():
+            result = self.geds.PPolyRep(model, n=spline_order)
+            knots = np.array(result.rx2("knots"), dtype=float, copy=True)
+            coefficients = np.array(result.rx2("coefficients"), dtype=float, copy=True)
+            return knots, coefficients
+
+    def shape_constrain(
+        self, model: Any, spline_order: int, constraints: list[str],
+        eps: float, ridge: float, base_learner: str | None,
+    ) -> Any:
+        with self.locked():
+            kwargs: dict[str, Any] = {
+                "n": spline_order,
+                "shape_constraint": self.ro.StrVector(constraints),
+                "eps": eps,
+                "ridge": ridge,
+            }
+            if base_learner is not None:
+                kwargs["base_learner"] = base_learner
+            return self.geds.shapeConstrain(model, **kwargs)
+
+    def base_learner_importance(
+        self, model: Any, boosting_iter_only: bool
+    ) -> pd.Series:
+        with self.locked():
+            result = self.geds.bl_imp(
+                model, boosting_iter_only=boosting_iter_only
+            )
+            names = [str(name) for name in self.ro.r("names")(result)]
+            values = np.array(result, dtype=float, copy=True)
+        return pd.Series(values, index=names, name="importance")
+
+    def cross_validate(
+        self, model_name: str, formula: str, frame: pd.DataFrame,
+        parameters: dict[str, np.ndarray], order: int, n_folds: int,
+        n_cores: int, random_state: int | None,
+        **fit_kwargs: Any,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Call R's specialized GeDS grid search, retaining its model symbol."""
+        if model_name not in {"NGeDS", "GGeDS", "NGeDSgam", "NGeDSboost"}:
+            raise ValueError("Unsupported GeDS cross-validation model.")
+        with self.locked():
+            # crossv_GeDS inspects the *symbol* of model_fun via substitute().
+            # Passing an rpy2 function value directly would lose that symbol.
+            wrapper = self.ro.r(
+                "function(formula, data, parameters, n, n_folds, n_cores, ...) {"
+                f" {model_name} <- GeDS::{model_name};"
+                " GeDS::crossv_GeDS(formula=formula, data=data,"
+                f" model_fun={model_name}, parameters=parameters,"
+                " n=n, n_folds=n_folds, n_cores=n_cores, ...)"
+                " }"
+            )
+            r_parameters = self.ro.ListVector({
+                name: self.vector(values) for name, values in parameters.items()
+            })
+            if random_state is not None:
+                self.ro.r["set.seed"](int(random_state))
+            with self._converter.context():
+                r_frame = self.ro.conversion.get_conversion().py2rpy(frame)
+            library = os.environ.get("GEDS_R_LIBRARY")
+            original_r_libs_user = os.environ.get("R_LIBS_USER")
+            if library:
+                os.environ["R_LIBS_USER"] = os.pathsep.join(
+                    part for part in (library, original_r_libs_user) if part
+                )
+            try:
+                result = wrapper(
+                    self.formula(formula), r_frame,
+                    parameters=r_parameters, n=order, n_folds=n_folds,
+                    n_cores=n_cores, **fit_kwargs,
+                )
+            finally:
+                if library:
+                    if original_r_libs_user is None:
+                        os.environ.pop("R_LIBS_USER", None)
+                    else:
+                        os.environ["R_LIBS_USER"] = original_r_libs_user
+            with self._converter.context():
+                conversion = self.ro.conversion.get_conversion()
+                best = conversion.rpy2py(result.rx2("best_params"))
+                results = conversion.rpy2py(result.rx2("results"))
+            return pd.DataFrame(best).reset_index(drop=True), pd.DataFrame(results).reset_index(drop=True)
+
+    def save_boosting_diagnostics(
+        self, model: Any, path: Path, iterations: list[int], final_fits: bool
+    ) -> None:
+        """Write R ``visualize_boosting`` plots to a multipage PDF."""
+        with self.locked():
+            self.ro.r["pdf"](file=str(path), width=8, height=6, onefile=True)
+            try:
+                self.geds.visualize_boosting(
+                    model, iters=self.ro.IntVector(iterations),
+                    final_fits=final_fits,
+                )
+            finally:
+                self.ro.r["dev.off"]()
+
     def component(self, model: Any, name: str) -> Any:
         try:
             return self.to_python(model.rx2(name))

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.base import clone, is_regressor
+from sklearn.model_selection import GridSearchCV, KFold, cross_val_score
 
 import geds
 import geds.check as check_module
@@ -15,6 +16,7 @@ from geds import (
     GeDSGAMRegressor,
     GeDSGeneralizedRegressor,
     GeDSRegressor,
+    cross_validate_geds,
     plot_fit,
 )
 from geds.check import main as check_main
@@ -114,6 +116,181 @@ def test_ngeds_reference_values_and_pickle(tmp_path):
     axes = plot_fit(estimator, frame[["X"]], frame["Y"], grid_size=50)
     assert axes.get_title() == "GeDS spline regression"
     assert len(axes.lines) == len(np.asarray(estimator.knots_).ravel()) + 1
+
+
+def test_univariate_calculus_and_piecewise_representation_match_r():
+    x = np.linspace(-2, 2, 100)
+    y = 4 + 40 * x / (1 + 100 * x**2)
+    model = GeDSRegressor(order=3, beta=0.6, phi=0.95).fit(
+        pd.DataFrame({"x": x}), y
+    )
+    backend = geds._backend.get_backend()
+    points = np.array([-0.5, 0.0, 0.5])
+    with backend.locked():
+        r_derivative = np.asarray(
+            backend.geds.Derive(model._r_model_, x=backend.vector(points), order=1, n=3)
+        )
+        r_integral = np.asarray(
+            backend.geds.Integrate(
+                model._r_model_, **{"from": backend.vector([-1.0])},
+                to=backend.vector(points), n=3,
+            )
+        )
+        r_poly = backend.geds.PPolyRep(model._r_model_, n=3)
+        r_knots = np.asarray(r_poly.rx2("knots"))
+        r_coefficients = np.asarray(r_poly.rx2("coefficients"))
+    np.testing.assert_allclose(model.derive(points), r_derivative)
+    np.testing.assert_allclose(model.integrate(-1.0, points), r_integral)
+    knots, coefficients = model.piecewise_polynomial()
+    np.testing.assert_allclose(knots, r_knots)
+    np.testing.assert_allclose(coefficients, r_coefficients)
+    with pytest.raises(ValueError, match="derivative_order"):
+        model.derive(points, derivative_order=3)
+    with pytest.raises(ValueError, match="same length"):
+        model.integrate([0, 1], points)
+
+
+def test_univariate_shape_constraint_matches_r_and_keeps_original():
+    x = np.linspace(0, 1, 100)
+    y = np.exp(2 * x) + 0.05 * np.sin(50 * x)
+    frame = pd.DataFrame({"x": x})
+    model = GeDSRegressor(order=3, beta=0.6, phi=0.95).fit(frame, y)
+    before = model.predict(frame)
+    constrained = model.shape_constrain("increasing")
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        direct = backend.geds.shapeConstrain(
+            model._r_model_, n=3,
+            shape_constraint=backend.ro.StrVector(["increasing"]),
+        )
+        direct_prediction = np.asarray(
+            backend.stats.predict(direct, newdata=backend.dataframe_to_r(
+                pd.DataFrame({"x0": x})
+            ), n=3, type="response")
+        )
+    np.testing.assert_allclose(constrained.predict(frame), direct_prediction)
+    np.testing.assert_allclose(model.predict(frame), before)
+    assert constrained.shape_constraints_ == ("increasing",)
+    with pytest.raises(NotImplementedError, match="not available"):
+        constrained.get_confidence_intervals()
+    with pytest.raises(ValueError, match="Opposing"):
+        model.shape_constrain(["increasing", "decreasing"])
+
+
+@pytest.mark.parametrize("spline_order", [2, 4])
+def test_univariate_utilities_alternate_orders_match_r(spline_order):
+    x = np.linspace(-1, 1, 90)
+    y = 2 + np.sin(3 * x) + 0.05 * np.cos(19 * x)
+    model = GeDSRegressor(order=spline_order, beta=0.6, phi=0.95).fit(
+        pd.DataFrame({"x": x}), y
+    )
+    backend = geds._backend.get_backend()
+    points = np.array([-0.5, 0.0, 0.5])
+    with backend.locked():
+        r_derivative = np.asarray(
+            backend.geds.Derive(
+                model._r_model_, x=backend.vector(points), order=1,
+                n=spline_order,
+            )
+        )
+        r_integral = np.asarray(
+            backend.geds.Integrate(
+                model._r_model_, **{"from": backend.vector([-np.inf])},
+                to=backend.vector(points), n=spline_order,
+            )
+        )
+        r_poly = backend.geds.PPolyRep(model._r_model_, n=spline_order)
+    np.testing.assert_allclose(model.derive(points), r_derivative)
+    np.testing.assert_allclose(model.integrate(-np.inf, points), r_integral)
+    knots, coefficients = model.piecewise_polynomial()
+    np.testing.assert_allclose(knots, np.asarray(r_poly.rx2("knots")))
+    np.testing.assert_allclose(coefficients, np.asarray(r_poly.rx2("coefficients")))
+
+
+def test_generalized_univariate_utilities_match_r():
+    x = np.linspace(-1, 1, 90)
+    y = np.maximum(1, np.rint(np.exp(1.5 + 0.5 * np.sin(3 * x))))
+    model = GeDSGeneralizedRegressor(
+        family="poisson", order=3, phi=0.95, min_internal_knots=3
+    ).fit(pd.DataFrame({"x": x}), y)
+    backend = geds._backend.get_backend()
+    points = np.array([-0.5, 0.0, 0.5])
+    with backend.locked():
+        direct = np.asarray(
+            backend.geds.Derive(model._r_model_, x=backend.vector(points), order=1, n=3)
+        )
+    np.testing.assert_allclose(model.derive(points), direct)
+    assert np.isfinite(model.integrate(-1.0, points)).all()
+    knots, coefficients = model.piecewise_polynomial()
+    assert coefficients.shape == (len(knots), 3)
+    with pytest.raises(ValueError, match="normal GeDS"):
+        model.shape_constrain("increasing")
+
+
+def test_sklearn_cross_validation_works_sequentially():
+    x = np.linspace(-1, 1, 60)
+    X = pd.DataFrame({"x": x})
+    y = 2 + np.sin(3 * x)
+    estimator = GeDSRegressor(order=2, higher_order=False, phi=0.9)
+    scores = cross_val_score(
+        estimator, X, y,
+        cv=KFold(n_splits=3, shuffle=True, random_state=123), n_jobs=1,
+    )
+    assert scores.shape == (3,)
+    assert np.isfinite(scores).all()
+    search = GridSearchCV(
+        estimator, {"phi": [0.85, 0.9]}, cv=2, n_jobs=1
+    ).fit(X, y)
+    assert search.best_estimator_.predict(X[:3]).shape == (3,)
+
+
+def test_r_specialized_cross_validation_returns_grid_summary():
+    x = np.linspace(-1, 1, 45)
+    X = pd.DataFrame({"x": x})
+    y = 2 + np.sin(3 * x)
+    estimator = GeDSRegressor(order=2, higher_order=False)
+    result = cross_validate_geds(
+        estimator, X, y,
+        {"beta": [0.5], "phi": [0.9, 0.95], "q": [2]},
+        n_folds=2, n_cores=1, random_state=123,
+    )
+    assert len(result.best_params) == 1
+    assert len(result.results) == 2
+    assert np.isfinite(result.results.select_dtypes(include="number").to_numpy()).all()
+    assert not hasattr(estimator, "_r_model_")
+
+
+@pytest.mark.parametrize("estimator", [
+    GeDSGeneralizedRegressor(order=2, higher_order=False),
+    GeDSGAMRegressor(order=2, higher_order=False),
+    GeDSBoostRegressor(order=2, higher_order=False, max_iterations=3),
+])
+def test_r_specialized_cross_validation_model_variants(estimator):
+    x = np.linspace(-1, 1, 45)
+    result = cross_validate_geds(
+        estimator, pd.DataFrame({"x": x}), 2 + np.sin(3 * x),
+        {"beta": [0.5], "phi": [0.95], "q": [2]},
+        n_folds=2, n_cores=1, random_state=123,
+    )
+    assert len(result.best_params) == len(result.results) == 1
+
+
+def test_r_specialized_cross_validation_rejects_unsupported_settings():
+    x = np.linspace(-1, 1, 20)
+    X = pd.DataFrame({"x": x})
+    y = 2 + x
+    with pytest.raises(ValueError, match="non-Gaussian"):
+        cross_validate_geds(
+            GeDSGeneralizedRegressor(family="poisson"), X, y, {}, n_folds=2
+        )
+    with pytest.raises(ValueError, match="does not forward"):
+        cross_validate_geds(
+            GeDSRegressor(min_internal_knots=3), X, y, {}, n_folds=2
+        )
+    with pytest.raises(ValueError, match="Unsupported parameter"):
+        cross_validate_geds(
+            GeDSRegressor(), X, y, {"shrinkage": [0.5]}, n_folds=2
+        )
 
 
 def test_ggeds_poisson_reference_values():
@@ -525,6 +702,99 @@ def test_additive_poisson_fits(estimator_class):
     estimator = estimator_class(family="poisson", max_iterations=3, **knots).fit(X, y)
     assert np.isfinite(estimator.predict(X)).all()
     assert np.isfinite(estimator.predict_link(X)).all()
+
+
+@pytest.mark.parametrize("estimator_class", [GeDSGAMRegressor, GeDSBoostRegressor])
+def test_additive_shape_constraint_matches_r(estimator_class):
+    x = np.linspace(0, 1, 50)
+    X = pd.DataFrame({"x": x})
+    y = np.exp(x) + 0.03 * np.sin(30 * x)
+    knots = {"internal_knots": 4} if estimator_class is GeDSGAMRegressor else {"int_knots_boost": 4}
+    model = estimator_class(max_iterations=3, **knots).fit(X, y)
+    constrained = model.shape_constrain("increasing", base_learner="f(x)")
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        direct = backend.geds.shapeConstrain(
+            model._r_model_, n=3,
+            shape_constraint=backend.ro.StrVector(["increasing"]),
+            base_learner="f(x0)",
+        )
+    np.testing.assert_allclose(
+        constrained.predict(X),
+        backend.predict(direct, backend.dataframe_to_r(pd.DataFrame({"x0": x})), 3, "response"),
+    )
+
+
+@pytest.mark.parametrize("estimator_class", [GeDSGAMRegressor, GeDSBoostRegressor])
+def test_additive_mixed_terms_shape_constraint_matches_r(estimator_class):
+    x = np.linspace(0, 1, 50)
+    X = pd.DataFrame({
+        "x": x,
+        "z": np.cos(4 * x),
+        "group": pd.Categorical(np.resize(["a", "b"], len(x))),
+    })
+    y = np.exp(x) + 0.2 * np.sin(4 * X["z"]) + 0.1 * (X["group"] == "b")
+    knots = {"internal_knots": 4} if estimator_class is GeDSGAMRegressor else {"int_knots_boost": 4}
+    model = estimator_class(
+        spline_terms=(("x",), ("z",)), linear_features=("group",),
+        max_iterations=3, **knots,
+    ).fit(X, y)
+    before = model.predict(X)
+    constrained = model.shape_constrain("increasing", base_learner="f(x)")
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        direct = backend.geds.shapeConstrain(
+            model._r_model_, n=3,
+            shape_constraint=backend.ro.StrVector(["increasing"]),
+            base_learner="f(x0)",
+        )
+    internal = X.copy()
+    internal.columns = ["x0", "x1", "x2"]
+    np.testing.assert_allclose(
+        constrained.predict(X),
+        backend.predict(direct, backend.dataframe_to_r(internal), 3, "response"),
+    )
+    np.testing.assert_allclose(model.predict(X), before)
+
+
+def test_boosting_importance_and_iterations_match_r():
+    x = np.linspace(-1, 1, 50)
+    X = pd.DataFrame({"x": x, "z": np.cos(3 * x)})
+    y = np.sin(2 * x) + 0.2 * X["z"]
+    model = GeDSBoostRegressor(
+        spline_terms=(("x",), ("z",)), max_iterations=3,
+        int_knots_boost=4,
+    ).fit(X, y)
+    backend = geds._backend.get_backend()
+    with backend.locked():
+        direct = backend.geds.bl_imp(
+            model._r_model_, boosting_iter_only=True
+        )
+        names = list(backend.ro.r("names")(direct))
+        n_iterations = int(backend.geds.N_boost_iter(model._r_model_)[0])
+    importance = model.get_base_learner_importance(
+        boosting_iterations_only=True
+    )
+    np.testing.assert_allclose(importance.to_numpy(), np.asarray(direct))
+    assert importance.index.tolist() == [
+        {"f(x0)": "f(x)", "f(x1)": "f(z)"}.get(name, name) for name in names
+    ]
+    assert int(model.n_iter_[0]) == n_iterations
+
+
+def test_boosting_diagnostics_save_r_plot(tmp_path):
+    x = np.linspace(-1, 1, 50)
+    X = pd.DataFrame({"x": x})
+    model = GeDSBoostRegressor(
+        max_iterations=3, int_knots_boost=4
+    ).fit(X, 2 + np.sin(3 * x))
+    target = tmp_path / "boosting.pdf"
+    assert model.save_boosting_diagnostics(
+        target, iterations=[0], final_fits=True
+    ) == target
+    assert target.stat().st_size > 1000
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        model.save_boosting_diagnostics(target)
 
 
 def test_additive_binomial_response_conventions():
