@@ -40,8 +40,8 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
             raise ValueError("phi must lie in [0, 1].")
         if not isinstance(self.q, (int, np.integer)) or self.q < 1:
             raise ValueError("q must be a positive integer.")
-        if self.stop_type not in {"SR", "RD", "LR"}:
-            raise ValueError("stop_type must be 'SR', 'RD', or 'LR'.")
+        if self.stop_type is not None and self.stop_type not in {"SR", "RD", "LR"}:
+            raise ValueError("stop_type must be 'SR', 'RD', 'LR', or None.")
         for name in ("min_internal_knots", "max_internal_knots"):
             value = getattr(self, name)
             if value is not None and (
@@ -222,7 +222,6 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
             "phi": self.phi,
             "q": self.q,
             "show_iters": self.verbose,
-            "stoptype": self.stop_type,
             "higher_order": self.higher_order,
         }
         optional = {
@@ -236,6 +235,7 @@ class _GeDSBase(RegressorMixin, BaseEstimator):
                 get_backend().vector(self.y_range) if self.y_range is not None else None
             ),
             "weights": weights,
+            "stoptype": self.stop_type,
         }
         kwargs.update(
             {key: value for key, value in optional.items() if value is not None}
@@ -458,7 +458,7 @@ class GeDSRegressor(_GeDSBase):
         q: int = 2,
         x_range: Sequence[float] | None = None,
         y_range: Sequence[float] | None = None,
-        stop_type: str = "RD",
+        stop_type: str | None = None,
         higher_order: bool = True,
         verbose: bool = False,
     ) -> None:
