@@ -92,6 +92,11 @@ one of the GeDS installation commands above, then rerun the check.
 
 ## Example
 
+For a finance example, see the [UK interest-rate notebook](examples/uk_yield_curves.ipynb).
+It fits a 10-year rate over time and a joint time-by-maturity surface using the
+Bank of England's published nominal spot-rate curves. The notebook downloads
+the source data when run; the repository does not redistribute the archive.
+
 Install the optional plotting dependency with
 `python -m pip install "geds-python[plot]"`, then fit and visualize a nonlinear
 regression:
