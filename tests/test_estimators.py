@@ -41,6 +41,14 @@ def test_diagnostics():
     assert info["minimum_geds_version"] == "0.3.6"
 
 
+def test_ngeds_default_stopping_rule_is_delegated_to_r():
+    estimator = GeDSRegressor()
+    assert estimator.stop_type is None
+    assert "stoptype" not in estimator._common_fit_kwargs(None)
+    estimator.set_params(stop_type="RD")
+    assert estimator._common_fit_kwargs(None)["stoptype"] == "RD"
+
+
 def test_environment_check(capsys):
     assert check_main([]) == 0
     assert "GeDS environment check: OK" in capsys.readouterr().out
@@ -555,7 +563,6 @@ def test_bivariate_numpy_input():
         phi=0.9,
         q=2,
         show_iters=False,
-        stoptype="RD",
         higher_order=False,
         max_intknots=3,
     )

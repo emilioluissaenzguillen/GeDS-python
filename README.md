@@ -92,6 +92,11 @@ one of the GeDS installation commands above, then rerun the check.
 
 ## Example
 
+For a finance example, see the [UK interest-rate notebook](https://github.com/emilioluissaenzguillen/GeDS-python/blob/main/examples/uk_yield_curves.ipynb).
+It fits a 10-year rate over time and a joint time-by-maturity surface using the
+Bank of England's published nominal spot-rate curves. The notebook downloads
+the source data when run; the repository does not redistribute the archive.
+
 Install the optional plotting dependency with
 `python -m pip install "geds-python[plot]"`, then fit and visualize a nonlinear
 regression:
@@ -144,6 +149,11 @@ variation near zero while retaining knots across the wider domain.
 
 `GeDSRegressor` delegates to `GeDS::NGeDS()`. For exponential-family models,
 use `GeDSGeneralizedRegressor`, which delegates to `GeDS::GGeDS()`.
+By default, `GeDSRegressor` leaves the stopping rule to R: `RD` for one
+spline feature and `SR` for a joint spline with two or more features. Set
+`stop_type="RD"` or `stop_type="SR"` to override it explicitly.
+`GeDSGeneralizedRegressor` uses R's `SR` default. GAM and boosting base
+learners also use their R implementation's dimension-specific rules.
 
 For fitted models, `get_deviance(order=...)`, `get_log_likelihood(order=...)`,
 and `get_confidence_intervals(order=..., level=...)` call the corresponding R

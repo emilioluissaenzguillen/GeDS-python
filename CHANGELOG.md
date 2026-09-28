@@ -8,6 +8,9 @@ the first alpha release.
 
 ## Unreleased
 
+- Let R select `NGeDS()`'s dimension-specific default stopping rule: `RD`
+  for univariate and `SR` for joint bivariate or higher-dimensional fits.
+
 ## 0.1.0 - 2026-09-25
 
 - Expose R's boosted base-learner importance alongside its existing iteration
