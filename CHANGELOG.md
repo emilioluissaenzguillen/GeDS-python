@@ -6,10 +6,14 @@ The project follows [Semantic Versioning](https://semver.org/). Versions use
 the Python packaging form of pre-release identifiers, such as `0.1.0a1` for
 the first alpha release.
 
-## Unreleased
+## 0.1.1 - 2026-09-28
 
 - Let R select `NGeDS()`'s dimension-specific default stopping rule: `RD`
   for univariate and `SR` for joint bivariate or higher-dimensional fits.
+- Add an executed UK spot-rate vignette with a univariate fit and two
+  bivariate sparse-maturity reconstructions, linked from the README.
+- Correct CI installation so integration tests use the newly built wheel,
+  rather than a same-version distribution from PyPI.
 
 ## 0.1.0 - 2026-09-25
 
