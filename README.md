@@ -280,6 +280,17 @@ generalized-model offsets; the backend rejects that version.
 Choose spline and parametric components explicitly for mixed data:
 
 ```python
+import numpy as np
+import pandas as pd
+
+from geds import GeDSRegressor
+
+rng = np.random.default_rng(17)
+x = np.linspace(-1.5, 1.5, 90)
+group = np.resize(["A", "B", "C"], x.size)
+X = pd.DataFrame({"x": x, "group": pd.Categorical(group)})
+y = np.sin(x) + np.select([group == "B", group == "C"], [0.5, -0.5]) + rng.normal(0, 0.05, x.size)
+
 model = GeDSRegressor(
     spline_features=["x"],
     linear_features=["group"],
@@ -343,10 +354,12 @@ be saved to a multipage PDF without opening R directly:
 ```python
 single_boost = GeDSBoostRegressor(max_iterations=10).fit(X[["x"]], y)
 single_boost.save_boosting_diagnostics(
-    "boosting.pdf", iterations=[0, 1, 2], final_fits=True
+    "boosting.pdf", iterations=[0, 1], final_fits=True
 )
 ```
 
+Iteration 0 is the initial fit. The example requests iterations 0 and 1
+because the fit stops after its first boosting update.
 The method refuses to replace an existing file unless `overwrite=True`.
 For binomial boosting, R expects responses encoded as -1 and 1. Offset
 prediction is not offered for these additive estimators yet.
